@@ -282,14 +282,14 @@ class HaFamilyBellPanel extends HTMLElement {
 
   routineCard(routine) {
     return `<section class="routine-card" data-routine-id="${routine.id}">
-      <div class="routine-heading"><label class="enabled"><input data-routine-enabled type="checkbox" ${routine.enabled ? "checked" : ""}></label><input data-routine-name value="${this.escape(routine.name)}"><span>${routine.steps.length} steps</span><button data-routine-action="add-step">＋ Step</button><button data-routine-action="save" class="primary">Save routine</button><button data-routine-action="delete" class="danger">Delete</button></div>
+      <div class="routine-heading"><label class="routine-enabled"><input data-routine-enabled type="checkbox" ${routine.enabled ? "checked" : ""}><span>Routine active</span></label><input data-routine-name value="${this.escape(routine.name)}"><span>${routine.steps.length} steps</span><button data-routine-action="enable-all">Enable all bells</button><button data-routine-action="disable-all">Disable all bells</button><button data-routine-action="add-step">＋ Step</button><button data-routine-action="save" class="primary">Save routine</button><button data-routine-action="delete" class="danger">Delete</button></div>
       <div class="routine-header"><span>On</span><span>Step</span><span>Time</span><span>Days</span><span>Message / set</span><span>Speakers</span><span>Actions</span></div>
       ${routine.steps.length ? routine.steps.map((step) => this.routineStepRow(routine, step)).join("") : `<div class="empty">No steps yet</div>`}
     </section>`;
   }
 
   routinesGrid() {
-    return `<div class="toolbar"><div><h2>Routines</h2><p>Each step has an exact time and its own weekdays.</p></div><button id="add-routine" class="primary">＋ Add routine</button></div>
+    return `<div class="toolbar"><div><h2>Routines</h2><p>Routine active pauses the whole routine. Enable or disable all changes every bell inside it.</p></div><button id="add-routine" class="primary">＋ Add routine</button></div>
       ${this.data.routines.length ? this.data.routines.map((routine) => this.routineCard(routine)).join("") : `<div class="empty card">No routines yet. Create Morning Routine from the Weekly Schedule.</div>`}`;
   }
 
@@ -432,6 +432,14 @@ class HaFamilyBellPanel extends HTMLElement {
     if (action === "save") await this.call({ type: "ha_family_bell/routine/update", routine_id: id, changes: this.routineData(card) });
     if (action === "delete" && confirm("Delete this routine? Its message sets will remain.")) await this.call({ type: "ha_family_bell/routine/delete", routine_id: id });
     if (action === "add-step") this.openStepEditor(id);
+    if (action === "enable-all" || action === "disable-all") {
+      const enabled = action === "enable-all";
+      const count = card.querySelectorAll(".routine-step").length;
+      const name = card.querySelector("[data-routine-name]").value.trim() || "this routine";
+      if (!confirm(`${enabled ? "Enable" : "Disable"} all ${count} bells in ${name}? This saves immediately.`)) return;
+      card.querySelectorAll('.routine-step [data-field="enabled"]').forEach((checkbox) => { checkbox.checked = enabled; });
+      await this.call({ type: "ha_family_bell/routine/update", routine_id: id, changes: this.routineData(card) });
+    }
   }
 
   async stepAction(card, row, action) {
@@ -514,7 +522,7 @@ class HaFamilyBellPanel extends HTMLElement {
     .preview-toolbar { align-items:flex-end; } .preview-filter { display:flex; align-items:center; gap:8px; padding:9px 12px; border:1px solid var(--divider-color); border-radius:9px; background:var(--card-background-color); } .preview-filter input { width:18px; height:18px; accent-color:var(--primary-color); }
     .preview-legend,.preview-row { display:grid; grid-template-columns:72px minmax(145px,auto) minmax(320px,2fr) minmax(150px,1fr) 50px minmax(110px,auto); gap:10px; align-items:center; padding:8px 14px; } .preview-legend { position:sticky; top:0; z-index:4; color:var(--secondary-text-color); background:var(--secondary-background-color); border-radius:9px; font-size:11px; text-transform:uppercase; } .preview-day { overflow:hidden; } .preview-day .day-heading { display:flex; justify-content:space-between; align-items:center; } .preview-day .day-heading span { color:var(--secondary-text-color); font-size:12px; } .preview-row { min-height:48px; border-top:1px solid var(--divider-color); } .preview-row.disabled { opacity:.58; } .preview-time { font-variant-numeric:tabular-nums; } .preview-message,.preview-speakers { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .preview-speakers { color:var(--secondary-text-color); font-size:12px; }
     .source-badge,.preview-state,.conflict { display:inline-block; width:max-content; padding:3px 7px; border-radius:99px; font-size:11px; font-weight:600; } .source-badge { color:var(--source-color); background:color-mix(in srgb,var(--source-color) 14%,transparent); } .preview-state.on { color:var(--success-color); background:color-mix(in srgb,var(--success-color) 12%,transparent); } .preview-state.off { color:var(--secondary-text-color); background:var(--secondary-background-color); } .preview-tools { display:flex; align-items:center; justify-content:flex-end; gap:5px; } .preview-tools button { padding:5px 8px; } .conflict { color:var(--error-color); background:color-mix(in srgb,var(--error-color) 12%,transparent); } .empty.compact { padding:16px; } .one-time-preview .preview-row { grid-template-columns:155px minmax(145px,auto) minmax(320px,2fr) minmax(150px,1fr) 50px minmax(110px,auto); } .edit-target { outline:2px solid var(--primary-color); outline-offset:-2px; transition:outline-color .3s; }
-    .routine-header,.routine-step { display:grid; grid-template-columns:42px 140px 110px 150px minmax(300px,2fr) minmax(160px,1fr) 100px; gap:8px; padding:9px 13px; align-items:center; } .routine-step { border-top:1px solid var(--divider-color); } .routine-heading [data-routine-name],.set-heading [data-set-name] { font-size:18px; font-weight:600; flex:1; }
+    .routine-header,.routine-step { display:grid; grid-template-columns:42px 140px 110px 150px minmax(300px,2fr) minmax(160px,1fr) 100px; gap:8px; padding:9px 13px; align-items:center; } .routine-step { border-top:1px solid var(--divider-color); } .routine-heading [data-routine-name],.set-heading [data-set-name] { font-size:18px; font-weight:600; flex:1; } .routine-enabled { display:flex; align-items:center; gap:6px; white-space:nowrap; font-size:12px; font-weight:600; } .routine-enabled input { width:20px; height:20px; accent-color:var(--primary-color); }
     .set-items { padding:12px; display:grid; gap:8px; } .set-item { display:grid; grid-template-columns:35px 1fr 42px; gap:8px; align-items:center; }
     .status { font-size:12px; text-align:center; } .status.completed { color:var(--success-color); } .status.missed,.error { color:var(--error-color); } .empty,.loading { padding:28px; text-align:center; color:var(--secondary-text-color); } .error { padding:12px; border-radius:8px; background:color-mix(in srgb,var(--error-color) 12%,transparent); }
     dialog { width:min(760px,calc(100vw - 32px)); max-height:90vh; overflow:auto; border:0; border-radius:14px; padding:22px; color:var(--primary-text-color); background:var(--card-background-color); box-shadow:0 12px 45px #0007; } dialog::backdrop { background:#0008; } dialog form { display:grid; gap:14px; } .day-checks { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; } .day-checks label { display:flex; gap:7px; align-items:center; } .window { display:grid; grid-template-columns:1fr 1fr 2fr; gap:8px; } .window label { display:grid; gap:5px; } .candidate-list { max-height:300px; overflow:auto; border:1px solid var(--divider-color); border-radius:8px; } .candidate-list label { display:grid; grid-template-columns:28px 90px 1fr; gap:7px; padding:7px; border-top:1px solid var(--divider-color); } .preview { padding:12px; border-radius:8px; background:var(--secondary-background-color); }

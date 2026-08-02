@@ -229,3 +229,7 @@ def test_panel_defaults_to_combined_preview_and_keeps_weekly_standalone() -> Non
     assert "<span>Source</span><span>Message / set</span>" in panel_source
     assert "<span>Source</span><span>Bell</span>" not in panel_source
     assert "source: row.routine_name" in panel_source
+    assert 'data-routine-action="enable-all"' in panel_source
+    assert 'data-routine-action="disable-all"' in panel_source
+    assert "Routine active" in panel_source
+    assert "This saves immediately." in panel_source

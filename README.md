@@ -10,6 +10,7 @@ Standalone weekly rows remain independent. Routine steps can cover several weekd
 - Sidebar panel with Week Preview, Weekly Schedule, Routines, Single-time Events, and Message Sets tabs
 - One row per bell: active, day/date, time, message, speakers, and actions
 - Named routines with exact-time steps and weekday selection per step
+- Explicit routine master switch plus immediate Enable all bells and Disable all bells controls
 - Reusable random-message sets with enabled variants and persisted shuffle-without-repeats
 - Direct Jinja templates or linked message sets for every bell type
 - Weekly Schedule contains only editable standalone weekly bells; routine steps stay in Routines
@@ -111,6 +112,10 @@ The final replacement requires a separate confirmation. Keep legacy automations 
 **Week Preview** is the default read-only overview. It combines standalone weekly bells and expanded routine steps into compact Monday-to-Sunday lists without duplicating schedule records. The simplified grid shows time, source, message/set, speakers, state, and Edit. Each weekly/routine owner has a stable distinct source color, and **Edit** jumps to that source's owning tab. An optional filter hides disabled items.
 
 Rows at the same day and exact time are marked **Conflict** when they share at least one speaker. This is a review warning only; the scheduler's speaker lock still prevents overlapping playback. Pending single-time events appear in a separate section below the recurring week.
+
+## Routine controls
+
+**Routine active** is the routine-level master switch: turning it off pauses every bell in that routine while preserving the individual step choices. **Enable all bells** and **Disable all bells** immediately save the corresponding enabled state to every step in that routine. They do not affect other routines or the global schedule switch.
 
 ## Migration workflow
 
