@@ -17,6 +17,7 @@ BellValidationError = schedule.BellValidationError
 advance_shuffle = schedule.advance_shuffle
 build_conversion_preview = schedule.build_conversion_preview
 extract_random_template = schedule.extract_random_template
+expand_placeholders = schedule.expand_placeholders
 next_occurrence = schedule.next_occurrence
 normalize_bell = schedule.normalize_bell
 normalize_message_set = schedule.normalize_message_set
@@ -97,6 +98,20 @@ def test_v1_message_becomes_direct_template_source() -> None:
         "template": "It is {{ now().hour }}",
     }
     assert "message" not in bell
+
+
+def test_friendly_placeholders_expand_to_home_assistant_templates() -> None:
+    assert expand_placeholders("Boys, it's %time%! %randomset%") == (
+        "Boys, it's {{ now().strftime('%H:%M') }}! {{ random_message }}"
+    )
+    source = schedule.normalize_message_source(
+        {
+            "kind": "message_set",
+            "set_id": "morning",
+            "template": "It is %time%. %randomset%",
+        }
+    )
+    assert source["template"] == ("It is {{ now().strftime('%H:%M') }}. {{ random_message }}")
 
 
 def test_routine_normalizes_exact_time_and_days() -> None:

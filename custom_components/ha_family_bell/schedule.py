@@ -15,11 +15,22 @@ WEEKDAYS = tuple(range(7))
 VALID_TYPES = {"weekly", "one_time"}
 VALID_STATUSES = {"pending", "completed", "missed"}
 VALID_MESSAGE_KINDS = {"template", "message_set"}
+FRIENDLY_PLACEHOLDERS = {
+    "%time%": "{{ now().strftime('%H:%M') }}",
+    "%randomset%": "{{ random_message }}",
+}
 _RANDOM_EXPRESSION = re.compile(r"{{\s*(\[(?:[^\[\]]|\n)*\])\s*\|\s*random\s*}}", re.DOTALL)
 
 
 class BellValidationError(ValueError):
     """Raised when a Family Bell record is invalid."""
+
+
+def expand_placeholders(template: str) -> str:
+    """Translate friendly editor placeholders to Home Assistant templates."""
+    for placeholder, expression in FRIENDLY_PLACEHOLDERS.items():
+        template = template.replace(placeholder, expression)
+    return template
 
 
 def _new_id(raw: dict[str, Any], forced_id: str | None = None) -> str:
@@ -62,7 +73,7 @@ def normalize_message_source(raw: Any) -> dict[str, str]:
     kind = str(raw.get("kind", "template"))
     if kind not in VALID_MESSAGE_KINDS:
         raise BellValidationError("message kind must be template or message_set")
-    template = str(raw.get("template", "")).strip()
+    template = expand_placeholders(str(raw.get("template", "")).strip())
     if not template:
         raise BellValidationError("message template is required")
     source = {"kind": kind, "template": template}

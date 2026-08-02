@@ -76,6 +76,20 @@ class HaFamilyBellPanel extends HTMLElement {
   }
   name(state) { return state.attributes.friendly_name || state.entity_id; }
 
+  friendlyTemplate(value) {
+    return String(value || "")
+      .replace(/{{\s*now\(\)\.strftime\((['"])%H:%M\1\)\s*}}/g, "%time%")
+      .replace(/{{\s*random_message\s*}}/g, "%randomset%");
+  }
+
+  previewMessage(template, setId) {
+    const now = new Date();
+    const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const set = (this.data?.message_sets || []).find((item) => item.id === setId);
+    const sample = set?.messages.find((item) => item.enabled)?.text || "random message";
+    return this.friendlyTemplate(template).replaceAll("%time%", time).replaceAll("%randomset%", sample);
+  }
+
   speakerPicker(record) {
     const selected = new Set(record.speakers || []);
     const label = selected.size ? `${selected.size} speaker${selected.size === 1 ? "" : "s"}` : "Choose speakers";
@@ -86,10 +100,12 @@ class HaFamilyBellPanel extends HTMLElement {
 
   messageEditor(source = { kind: "template", template: "" }) {
     const linked = source.kind === "message_set";
+    const friendly = this.friendlyTemplate(source.template);
     return `<div class="message-editor">
       <select data-field="message-kind" aria-label="Message type"><option value="template" ${linked ? "" : "selected"}>Direct</option><option value="message_set" ${linked ? "selected" : ""}>Random set</option></select>
-      <input data-field="message-template" value="${this.escape(source.template)}" placeholder="${linked ? "{{ random_message }}" : "Message or Jinja template"}" aria-label="Message template">
+      <input data-field="message-template" value="${this.escape(friendly)}" placeholder="${linked ? "%randomset%" : "Message text"}" aria-label="Message template">
       <select data-field="message-set" aria-label="Message set" ${linked ? "" : "hidden"}><option value="">Choose set…</option>${(this.data?.message_sets || []).map((set) => `<option value="${set.id}" ${source.set_id === set.id ? "selected" : ""}>${this.escape(set.name)}</option>`).join("")}</select>
+      <div class="placeholder-tools"><span>Insert:</span><button type="button" data-placeholder="%time%">Time</button><button type="button" data-placeholder="%randomset%" ${linked ? "" : "hidden"}>Random message</button><small data-message-preview>Example: ${this.escape(this.previewMessage(friendly, source.set_id))}</small></div>
     </div>`;
   }
 
@@ -218,13 +234,38 @@ class HaFamilyBellPanel extends HTMLElement {
   }
 
   bindMessageEditors(root = this.shadowRoot) {
-    root.querySelectorAll('[data-field="message-kind"]').forEach((select) => select.addEventListener("change", () => {
-      const editor = select.closest(".message-editor");
-      const linked = select.value === "message_set";
-      editor.querySelector('[data-field="message-set"]').hidden = !linked;
+    const refresh = (editor) => {
+      const linked = editor.querySelector('[data-field="message-kind"]').value === "message_set";
+      const setSelect = editor.querySelector('[data-field="message-set"]');
       const input = editor.querySelector('[data-field="message-template"]');
-      if (linked && !input.value.includes("random_message")) input.value = "{{ random_message }}";
-    }));
+      const randomButton = editor.querySelector('[data-placeholder="%randomset%"]');
+      setSelect.hidden = !linked;
+      randomButton.hidden = !linked;
+      editor.querySelector("[data-message-preview]").textContent = `Example: ${this.previewMessage(input.value, linked ? setSelect.value : null)}`;
+    };
+    root.querySelectorAll(".message-editor").forEach((editor) => {
+      const kind = editor.querySelector('[data-field="message-kind"]');
+      const input = editor.querySelector('[data-field="message-template"]');
+      const setSelect = editor.querySelector('[data-field="message-set"]');
+      kind.addEventListener("change", () => {
+        const linked = kind.value === "message_set";
+        if (linked && !input.value.includes("%randomset%") && !input.value.includes("random_message")) input.value = `${input.value} %randomset%`.trim();
+        if (!linked) input.value = input.value.replaceAll("%randomset%", "").trim();
+        refresh(editor);
+      });
+      input.addEventListener("input", () => refresh(editor));
+      setSelect.addEventListener("change", () => refresh(editor));
+      editor.querySelectorAll("[data-placeholder]").forEach((button) => button.addEventListener("click", () => {
+        const token = button.dataset.placeholder;
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? start;
+        input.value = `${input.value.slice(0, start)}${token}${input.value.slice(end)}`;
+        input.focus();
+        input.setSelectionRange(start + token.length, start + token.length);
+        refresh(editor);
+      }));
+      refresh(editor);
+    });
   }
 
   bind() {
@@ -337,7 +378,7 @@ class HaFamilyBellPanel extends HTMLElement {
   openMorningWizard() {
     const dialog = this.shadowRoot.querySelector("#editor"); const weekly = this.data.bells.filter((bell) => bell.type === "weekly");
     dialog.innerHTML = `<form method="dialog"><h2>Morning Routine conversion</h2><p>Review only. Nothing changes until you preview and confirm.</p><div class="window"><label>From<input id="window-start" type="time" value="05:00"></label><label>To<input id="window-end" type="time" value="11:59"></label><label>Routine name<input id="conversion-name" value="Morning Routine"></label></div><div id="candidate-list" class="candidate-list"></div><div id="conversion-preview"></div><div class="dialog-actions"><button value="cancel">Cancel</button><button id="preview-conversion" type="button" class="primary">Preview conversion</button></div></form>`;
-    const refresh = () => { const start = dialog.querySelector("#window-start").value; const end = dialog.querySelector("#window-end").value; const candidates = weekly.filter((bell) => bell.time.slice(0, 5) >= start && bell.time.slice(0, 5) <= end); dialog.querySelector("#candidate-list").innerHTML = candidates.map((bell) => `<label><input data-candidate="${bell.id}" type="checkbox" checked><span>${DAYS[bell.weekday].slice(0, 3)} ${bell.time.slice(0, 5)}</span><span>${this.escape(bell.message_source.template)}</span></label>`).join("") || `<div class="empty">No bells in this window.</div>`; };
+    const refresh = () => { const start = dialog.querySelector("#window-start").value; const end = dialog.querySelector("#window-end").value; const candidates = weekly.filter((bell) => bell.time.slice(0, 5) >= start && bell.time.slice(0, 5) <= end); dialog.querySelector("#candidate-list").innerHTML = candidates.map((bell) => `<label><input data-candidate="${bell.id}" type="checkbox" checked><span>${DAYS[bell.weekday].slice(0, 3)} ${bell.time.slice(0, 5)}</span><span>${this.escape(this.friendlyTemplate(bell.message_source.template))}</span></label>`).join("") || `<div class="empty">No bells in this window.</div>`; };
     refresh(); dialog.querySelector("#window-start").addEventListener("change", refresh); dialog.querySelector("#window-end").addEventListener("change", refresh);
     dialog.querySelector("#preview-conversion").addEventListener("click", async () => { try { const ids = [...dialog.querySelectorAll("[data-candidate]:checked")].map((el) => el.dataset.candidate); const name = dialog.querySelector("#conversion-name").value; const preview = await this.hass.callWS({ type: "ha_family_bell/conversion/preview", bell_ids: ids, name }); const target = dialog.querySelector("#conversion-preview"); target.innerHTML = `<div class="preview"><strong>${preview.source_bell_ids.length} rows → ${preview.routine.steps.length} steps + ${preview.message_sets.length} message sets</strong>${preview.routine.steps.map((step) => `<div>${step.time.slice(0, 5)} · ${step.weekdays.map((day) => DAYS[day].slice(0, 3)).join(", ")} · ${this.escape(step.name)}</div>`).join("")}<button id="commit-conversion" type="button" class="danger-fill">Replace selected rows</button></div>`; target.querySelector("#commit-conversion").addEventListener("click", async () => { if (!confirm(`Replace ${ids.length} selected weekly rows with this routine? The master switch and legacy automations will not change.`)) return; await this.call({ type: "ha_family_bell/conversion/commit", bell_ids: ids, name }); dialog.close(); this.activeTab = "routines"; this.render(); }); } catch (err) { this.showError(err); } });
     dialog.showModal();
@@ -356,7 +397,7 @@ class HaFamilyBellPanel extends HTMLElement {
     nav { display:flex; gap:8px; margin:16px 0; border-bottom:1px solid var(--divider-color); overflow:auto; } nav button { border:0; border-radius:0; background:none; padding:12px 16px; white-space:nowrap; } nav button.active { color:var(--primary-color); border-bottom:3px solid var(--primary-color); font-weight:600; }
     .settings,.day-group,.routine-card,.message-set-card,.card { background:var(--card-background-color); border-radius:12px; margin-bottom:18px; box-shadow:var(--ha-card-box-shadow); } .settings { padding:14px 16px; } .settings-grid { display:grid; grid-template-columns:repeat(4,minmax(140px,1fr)); gap:12px; margin-top:16px; } .settings-grid label,dialog form>label { display:flex; flex-direction:column; gap:5px; color:var(--secondary-text-color); } .settings-grid .wide,.settings-actions { grid-column:1/-1; } .settings-actions,.actions,.dialog-actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
     .toolbar { margin:18px 0; } .day-heading,.routine-heading,.set-heading { padding:13px 16px; border-bottom:1px solid var(--divider-color); } .grid-header,.bell-row { display:grid; grid-template-columns:42px 76px 120px minmax(300px,2fr) minmax(160px,1fr) minmax(260px,auto); gap:9px; align-items:center; padding:9px 13px; } .grid-header.one-time,.bell-row.one-time { grid-template-columns:42px 135px 120px minmax(300px,2fr) minmax(160px,1fr) 80px minmax(220px,auto); } .grid-header,.routine-header { color:var(--secondary-text-color); font-size:12px; text-transform:uppercase; background:var(--secondary-background-color); } .bell-row { border-top:1px solid var(--divider-color); }
-    .message-editor { display:grid; grid-template-columns:100px minmax(160px,1fr); gap:5px; } .message-editor [data-field="message-set"] { grid-column:1/-1; } [hidden] { display:none!important; }
+    .message-editor { display:grid; grid-template-columns:100px minmax(160px,1fr); gap:5px; } .message-editor [data-field="message-set"],.placeholder-tools { grid-column:1/-1; } .placeholder-tools { display:flex; align-items:center; gap:5px; flex-wrap:wrap; color:var(--secondary-text-color); font-size:11px; } .placeholder-tools button { padding:3px 7px; font-size:11px; } .placeholder-tools small { flex-basis:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } [hidden] { display:none!important; }
     .speaker-picker,.day-picker { position:relative; } .speaker-picker summary,.day-picker summary { border:1px solid var(--divider-color); border-radius:7px; padding:9px; cursor:pointer; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; } .speaker-options,.day-picker>div { position:absolute; z-index:10; min-width:250px; max-height:270px; overflow:auto; background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:9px; box-shadow:var(--ha-card-box-shadow); padding:7px; } .speaker-options label,.day-picker label { display:flex; gap:8px; padding:6px; }
     .badge { display:inline-block; margin-right:8px; padding:3px 7px; border-radius:99px; color:var(--primary-color); background:color-mix(in srgb,var(--primary-color) 12%,transparent); font-size:11px; } .routine-summary { background:color-mix(in srgb,var(--primary-color) 4%,var(--card-background-color)); } .summary-message { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .routine-header,.routine-step { display:grid; grid-template-columns:42px 140px 110px 150px minmax(300px,2fr) minmax(160px,1fr) 100px; gap:8px; padding:9px 13px; align-items:center; } .routine-step { border-top:1px solid var(--divider-color); } .routine-heading [data-routine-name],.set-heading [data-set-name] { font-size:18px; font-weight:600; flex:1; }

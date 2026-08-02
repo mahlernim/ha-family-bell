@@ -89,6 +89,15 @@ A linked source uses a stable message-set ID and a wrapper containing `random_me
 
 The chosen set variant is rendered as a Home Assistant template first, then supplied to the wrapper as `random_message`. Manual tests do not advance the persisted shuffle bag.
 
+### Friendly message placeholders
+
+The panel hides common Jinja expressions behind readable placeholders:
+
+- `%time%` inserts the current Home Assistant local time as `HH:MM`.
+- `%randomset%` inserts the next shuffled message from the selected message set.
+
+For example, enter `Boys, it's %time%! %randomset%`. The editor shows a live example and provides **Time** and **Random message** insertion buttons. Existing Jinja values display as friendly placeholders automatically, while other advanced Jinja expressions remain unchanged and supported.
+
 ## Morning Routine conversion
 
 From **Weekly Schedule**, select **Create Morning Routine**. The default 05:00–11:59 window identifies candidates, while checkboxes let you exclude individual rows. Preview groups equivalent time/message/speaker rows and merges their weekdays. A single literal Jinja expression such as `{{ ['First', 'Second'] | random }}` becomes a linked set; complex expressions stay as direct templates.
