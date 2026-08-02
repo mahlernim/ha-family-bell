@@ -16,7 +16,7 @@ creating automation YAML.
 8. [Create a one-time event](#create-a-one-time-event)
 9. [Configure chimes and TTS](#configure-chimes-and-tts)
 10. [Use Week Preview](#use-week-preview)
-11. [Import or convert an existing schedule](#import-or-convert-an-existing-schedule)
+11. [Move an existing schedule](#move-an-existing-schedule)
 12. [Back up and restore schedule data](#back-up-and-restore-schedule-data)
 13. [Troubleshoot announcements](#troubleshoot-announcements)
 
@@ -83,7 +83,7 @@ Use a weekly bell for an independent announcement that repeats on one weekday.
 
 1. Open **Weekly Schedule**.
 2. Find the required weekday and select **Add bell**.
-3. Enter the exact local time.
+3. Enter the local time. Bells are scheduled by hour and minute.
 4. Choose a direct message or a linked message set.
 5. Select one or more speakers.
 6. Save the bell.
@@ -101,7 +101,7 @@ sequence, medication reminders, study prompts, or closing-time notices.
 2. Select **New routine**.
 3. Enter a descriptive routine name.
 4. Add a bell to the routine.
-5. Choose its time and one or more weekdays.
+5. Choose its hour, minute, and one or more weekdays.
 6. Enter a message or select a message set.
 7. Select the speakers and save.
 8. Repeat for each announcement in the routine.
@@ -188,8 +188,8 @@ Open **Announcement settings** from the top of the panel.
 ### TTS service
 
 The default is `tts.google_translate_say`. The configured service must accept
-the legacy service-data fields used by HA Family Bell: `entity_id`, `message`,
-`language`, and `cache`.
+the `entity_id`, `message`, `language`, and `cache` fields sent by HA Family
+Bell.
 
 ### Language
 
@@ -247,11 +247,11 @@ For a bell linked to a message set, Preview shows the message wrapper with the
 `%randomset%` placeholder. The message-set name remains available in the bell
 editor, where the link can be changed.
 
-A conflict warning appears when two bells share both the same exact time and at
+A conflict warning appears when two bells share both the same time and at
 least one speaker. The warning helps with schedule review; speaker queuing still
 prevents both announcements from playing through that speaker simultaneously.
 
-## Import or convert an existing schedule
+## Move an existing schedule
 
 ### Import JSON
 
@@ -279,7 +279,7 @@ normal editable routine.
 7. Confirm only when the preview is correct.
 
 The conversion replaces only the selected weekly bells. It does not change the
-main schedule switch or enable, disable, or remove Home Assistant automations.
+main schedule switch or modify Home Assistant automations.
 
 If another automation system currently sends the same announcements, keep HA
 Family Bell paused while reviewing and testing the converted schedule. Disable

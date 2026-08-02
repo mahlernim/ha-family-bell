@@ -227,7 +227,7 @@ class HaFamilyBellPanel extends HTMLElement {
     return `<div class="bell-row" data-id="${bell.id}" data-type="weekly">
       <label class="enabled"><input data-field="enabled" type="checkbox" ${bell.enabled ? "checked" : ""}></label>
       <select data-field="weekday">${DAYS.map((day, i) => `<option value="${i}" ${bell.weekday === i ? "selected" : ""}>${day.slice(0, 3)}</option>`).join("")}</select>
-      <input data-field="time" type="time" step="1" value="${this.escape(bell.time)}">
+      <input data-field="time" type="time" step="60" value="${this.escape(bell.time.slice(0, 5))}">
       ${this.messageEditor(bell.message_source)}${this.speakerPicker(bell)}
       <div class="actions"><button data-action="save" class="primary">Save</button><button data-action="test" data-tooltip="Play now" aria-label="Play now">▶</button><button data-action="copy" title="Copy to other days">Days</button><button data-action="duplicate" title="Duplicate bell" aria-label="Duplicate bell">⧉</button><button data-action="delete" class="danger" data-tooltip="Delete bell" aria-label="Delete bell">×</button></div>
     </div>`;
@@ -343,7 +343,7 @@ class HaFamilyBellPanel extends HTMLElement {
     const local = new Date(dateTime.getTime() - dateTime.getTimezoneOffset() * 60000).toISOString();
     return `<div class="bell-row one-time" data-id="${bell.id}" data-type="one_time">
       <label class="enabled"><input data-field="enabled" type="checkbox" ${bell.enabled ? "checked" : ""}></label>
-      <input data-field="date" type="date" value="${local.slice(0, 10)}"><input data-field="time" type="time" step="1" value="${local.slice(11, 19)}">
+      <input data-field="date" type="date" value="${local.slice(0, 10)}"><input data-field="time" type="time" step="60" value="${local.slice(11, 16)}">
       ${this.messageEditor(bell.message_source)}${this.speakerPicker(bell)}
       <span class="status ${bell.status}">${this.escape(bell.status)}</span>
       <div class="actions"><button data-action="save" class="primary">Save</button><button data-action="test" data-tooltip="Play now" aria-label="Play now">▶</button><button data-action="duplicate" title="Duplicate event" aria-label="Duplicate event">＋</button><button data-action="delete" class="danger" data-tooltip="Delete event" aria-label="Delete event">×</button></div>
@@ -371,7 +371,7 @@ class HaFamilyBellPanel extends HTMLElement {
     return `<div class="routine-step" data-step-id="${step.id}">
       <label class="enabled"><input data-field="enabled" type="checkbox" ${step.enabled ? "checked" : ""}></label>
       <input data-field="name" type="hidden" value="${this.escape(step.name)}">
-      <input data-field="time" type="time" step="1" value="${this.escape(step.time)}">
+      <input data-field="time" type="time" step="60" value="${this.escape(step.time.slice(0, 5))}">
       <details class="day-picker"><summary>${step.weekdays.map((day) => DAYS[day].slice(0, 3)).join(", ")}</summary><div>${DAYS.map((day, i) => `<label><input data-weekday="${i}" type="checkbox" ${step.weekdays.includes(i) ? "checked" : ""}>${day.slice(0, 3)}</label>`).join("")}</div></details>
       ${this.messageEditor(step.message_source)}${this.speakerPicker(step)}
       <div class="actions"><button data-step-action="test" data-tooltip="Play now" aria-label="Play now">▶</button><button data-step-action="delete" class="danger" data-tooltip="Delete bell" aria-label="Delete bell">×</button></div>
@@ -628,7 +628,7 @@ class HaFamilyBellPanel extends HTMLElement {
 
   openBellEditor(type, weekday) {
     const dialog = this.shadowRoot.querySelector("#editor"); const now = new Date(); now.setMinutes(now.getMinutes() + 10); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString();
-    dialog.innerHTML = `<form method="dialog"><h2>${type === "weekly" ? `Add ${DAYS[weekday]} bell` : "Add single-time event"}</h2>${type === "one_time" ? `<label>Date<input id="new-date" type="date" value="${local.slice(0, 10)}" required></label>` : ""}<label>Time<input id="new-time" type="time" step="1" value="${local.slice(11, 19)}" required></label><label>Message${this.messageEditor()}</label><label>Speakers${this.speakerPicker({ speakers: [] })}</label><div class="dialog-actions"><button value="cancel">Cancel</button><button id="create" class="primary">Create disabled</button></div></form>`;
+    dialog.innerHTML = `<form method="dialog"><h2>${type === "weekly" ? `Add ${DAYS[weekday]} bell` : "Add single-time event"}</h2>${type === "one_time" ? `<label>Date<input id="new-date" type="date" value="${local.slice(0, 10)}" required></label>` : ""}<label>Time<input id="new-time" type="time" step="60" value="${local.slice(11, 16)}" required></label><label>Message${this.messageEditor()}</label><label>Speakers${this.speakerPicker({ speakers: [] })}</label><div class="dialog-actions"><button value="cancel">Cancel</button><button id="create" class="primary">Create disabled</button></div></form>`;
     this.bindMessageEditors(dialog);
     dialog.querySelector("#create").addEventListener("click", async (event) => { event.preventDefault(); const bell = { type, enabled: false, message_source: this.readMessageSource(dialog), speakers: [...dialog.querySelectorAll("[data-speaker]:checked")].map((el) => el.dataset.speaker) }; if (type === "weekly") { bell.weekday = weekday; bell.time = dialog.querySelector("#new-time").value; } else bell.datetime = `${dialog.querySelector("#new-date").value}T${dialog.querySelector("#new-time").value}`; try { await this.call({ type: "ha_family_bell/create", bell }); dialog.close(); } catch (_err) {} });
     dialog.showModal();
@@ -646,7 +646,7 @@ class HaFamilyBellPanel extends HTMLElement {
 
   openStepEditor(routineId) {
     const dialog = this.shadowRoot.querySelector("#editor"); const routine = this.data.routines.find((item) => item.id === routineId); const now = new Date(); const time = now.toTimeString().slice(0, 5);
-    dialog.innerHTML = `<form method="dialog"><h2>Add routine bell</h2><label>Time<input id="step-time" type="time" value="${time}" required></label><label>Days<div class="day-checks">${DAYS.map((day, i) => `<label><input data-weekday="${i}" type="checkbox" checked>${day}</label>`).join("")}</div></label><label>Message${this.messageEditor()}</label><label>Speakers${this.speakerPicker({ speakers: [] })}</label><div class="dialog-actions"><button value="cancel">Cancel</button><button id="create-step" class="primary">Add disabled bell</button></div></form>`;
+    dialog.innerHTML = `<form method="dialog"><h2>Add routine bell</h2><label>Time<input id="step-time" type="time" step="60" value="${time}" required></label><label>Days<div class="day-checks">${DAYS.map((day, i) => `<label><input data-weekday="${i}" type="checkbox" checked>${day}</label>`).join("")}</div></label><label>Message${this.messageEditor()}</label><label>Speakers${this.speakerPicker({ speakers: [] })}</label><div class="dialog-actions"><button value="cancel">Cancel</button><button id="create-step" class="primary">Add disabled bell</button></div></form>`;
     this.bindMessageEditors(dialog);
     dialog.querySelector("#create-step").addEventListener("click", async (event) => { event.preventDefault(); const selectedTime = dialog.querySelector("#step-time").value; const step = { name: `${selectedTime} bell`, enabled: false, time: selectedTime, weekdays: [...dialog.querySelectorAll("[data-weekday]:checked")].map((el) => Number(el.dataset.weekday)), message_source: this.readMessageSource(dialog), speakers: [...dialog.querySelectorAll("[data-speaker]:checked")].map((el) => el.dataset.speaker) }; await this.call({ type: "ha_family_bell/routine/update", routine_id: routineId, changes: { steps: [...routine.steps, step] } }); dialog.close(); }); dialog.showModal();
   }
