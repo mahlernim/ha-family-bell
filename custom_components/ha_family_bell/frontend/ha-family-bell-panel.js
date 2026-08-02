@@ -144,6 +144,12 @@ class HaFamilyBellPanel extends HTMLElement {
     return speakers.map((entityId) => byId.get(entityId) || entityId).join(", ") || "No speakers";
   }
 
+  sourceColor(sourceKey) {
+    const palette = ["#1689d8", "#a855f7", "#f97316", "#10a37f", "#ec4899", "#6366f1", "#14b8a6", "#a16207"];
+    const sources = ["weekly", ...this.data.routines.map((routine) => routine.id), "one-time"];
+    return palette[Math.max(sources.indexOf(sourceKey), 0) % palette.length];
+  }
+
   previewEntries() {
     const entries = this.data.bells.filter((bell) => bell.type === "weekly").map((bell) => ({
       key: `weekly:${bell.id}:${bell.weekday}`,
@@ -151,8 +157,7 @@ class HaFamilyBellPanel extends HTMLElement {
       time: bell.time,
       enabled: bell.enabled,
       source: "Weekly",
-      sourceClass: "weekly",
-      title: "Weekly schedule",
+      sourceKey: "weekly",
       message: this.messageSummary(bell.message_source),
       speakers: bell.speakers,
       ownerType: "weekly",
@@ -164,9 +169,8 @@ class HaFamilyBellPanel extends HTMLElement {
         weekday: row.weekday,
         time: row.time,
         enabled: row.enabled,
-        source: "Routine",
-        sourceClass: "routine",
-        title: `${row.routine_name} · ${row.step_name || row.time.slice(0, 5)}`,
+        source: row.routine_name,
+        sourceKey: row.routine_id,
         message: this.messageSummary(row.message_source),
         speakers: row.speakers,
         ownerType: "routine",
@@ -189,14 +193,13 @@ class HaFamilyBellPanel extends HTMLElement {
         }
       }
     }
-    return entries.sort((a, b) => a.weekday - b.weekday || a.time.localeCompare(b.time) || a.title.localeCompare(b.title));
+    return entries.sort((a, b) => a.weekday - b.weekday || a.time.localeCompare(b.time) || a.source.localeCompare(b.source));
   }
 
   previewRow(entry) {
     return `<div class="preview-row ${entry.enabled ? "" : "disabled"}" data-preview-key="${this.escape(entry.key)}">
       <strong class="preview-time">${this.escape(entry.displayTime || entry.time.slice(0, 5))}</strong>
-      <span><span class="source-badge ${entry.sourceClass}">${entry.source}</span></span>
-      <span class="preview-title">${this.escape(entry.title)}</span>
+      <span><span class="source-badge" style="--source-color:${this.sourceColor(entry.sourceKey)}">${this.escape(entry.source)}</span></span>
       <span class="preview-message" title="${this.escape(entry.message)}">${this.escape(entry.message)}</span>
       <span class="preview-speakers" title="${this.escape(this.speakerSummary(entry.speakers))}">${this.escape(this.speakerSummary(entry.speakers))}</span>
       <span class="preview-state ${entry.enabled ? "on" : "off"}">${entry.enabled ? "On" : "Off"}</span>
@@ -213,8 +216,7 @@ class HaFamilyBellPanel extends HTMLElement {
       displayTime: label,
       enabled: bell.enabled,
       source: "One-time",
-      sourceClass: "one-time",
-      title: "Single-time event",
+      sourceKey: "one-time",
       message: this.messageSummary(bell.message_source),
       speakers: bell.speakers,
       ownerType: "one_time",
@@ -230,7 +232,7 @@ class HaFamilyBellPanel extends HTMLElement {
       .filter((bell) => !this.previewActiveOnly || bell.enabled)
       .sort((a, b) => a.datetime.localeCompare(b.datetime));
     return `<div class="toolbar preview-toolbar"><div><h2>Week preview</h2><p>Read-only combined view of standalone weekly bells and routine steps.</p></div><label class="preview-filter"><input id="preview-active-only" type="checkbox" ${this.previewActiveOnly ? "checked" : ""}> Enabled items only</label></div>
-      <div class="preview-legend"><span>Time</span><span>Source</span><span>Bell</span><span>Message / set</span><span>Speakers</span><span>State</span><span></span></div>
+      <div class="preview-legend"><span>Time</span><span>Source</span><span>Message / set</span><span>Speakers</span><span>State</span><span></span></div>
       ${DAYS.map((day, weekday) => {
         const rows = visible.filter((entry) => entry.weekday === weekday);
         return `<section class="day-group preview-day"><div class="day-heading"><h2>${day}</h2><span>${rows.length} bell${rows.length === 1 ? "" : "s"}</span></div>${rows.length ? rows.map((entry) => this.previewRow(entry)).join("") : `<div class="empty compact">No bells</div>`}</section>`;
@@ -510,8 +512,8 @@ class HaFamilyBellPanel extends HTMLElement {
     .speaker-picker,.day-picker { position:relative; } .speaker-picker summary,.day-picker summary { border:1px solid var(--divider-color); border-radius:7px; padding:9px; cursor:pointer; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; } .speaker-options,.day-picker>div { position:absolute; z-index:10; min-width:250px; max-height:270px; overflow:auto; background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:9px; box-shadow:var(--ha-card-box-shadow); padding:7px; } .speaker-options label,.day-picker label { display:flex; gap:8px; padding:6px; }
     .badge { display:inline-block; margin-right:8px; padding:3px 7px; border-radius:99px; color:var(--primary-color); background:color-mix(in srgb,var(--primary-color) 12%,transparent); font-size:11px; }
     .preview-toolbar { align-items:flex-end; } .preview-filter { display:flex; align-items:center; gap:8px; padding:9px 12px; border:1px solid var(--divider-color); border-radius:9px; background:var(--card-background-color); } .preview-filter input { width:18px; height:18px; accent-color:var(--primary-color); }
-    .preview-legend,.preview-row { display:grid; grid-template-columns:72px 78px minmax(190px,1.2fr) minmax(260px,2fr) minmax(150px,1fr) 50px minmax(110px,auto); gap:10px; align-items:center; padding:8px 14px; } .preview-legend { position:sticky; top:0; z-index:4; color:var(--secondary-text-color); background:var(--secondary-background-color); border-radius:9px; font-size:11px; text-transform:uppercase; } .preview-day { overflow:hidden; } .preview-day .day-heading { display:flex; justify-content:space-between; align-items:center; } .preview-day .day-heading span { color:var(--secondary-text-color); font-size:12px; } .preview-row { min-height:48px; border-top:1px solid var(--divider-color); } .preview-row.disabled { opacity:.58; } .preview-time { font-variant-numeric:tabular-nums; } .preview-title { font-weight:600; } .preview-message,.preview-speakers { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .preview-speakers { color:var(--secondary-text-color); font-size:12px; }
-    .source-badge,.preview-state,.conflict { display:inline-block; width:max-content; padding:3px 7px; border-radius:99px; font-size:11px; font-weight:600; } .source-badge.weekly { color:var(--info-color,var(--primary-color)); background:color-mix(in srgb,var(--info-color,var(--primary-color)) 12%,transparent); } .source-badge.routine { color:var(--primary-color); background:color-mix(in srgb,var(--primary-color) 12%,transparent); } .source-badge.one-time { color:var(--warning-color,#f5a623); background:color-mix(in srgb,var(--warning-color,#f5a623) 14%,transparent); } .preview-state.on { color:var(--success-color); background:color-mix(in srgb,var(--success-color) 12%,transparent); } .preview-state.off { color:var(--secondary-text-color); background:var(--secondary-background-color); } .preview-tools { display:flex; align-items:center; justify-content:flex-end; gap:5px; } .preview-tools button { padding:5px 8px; } .conflict { color:var(--error-color); background:color-mix(in srgb,var(--error-color) 12%,transparent); } .empty.compact { padding:16px; } .one-time-preview .preview-row { grid-template-columns:155px 78px minmax(190px,1.2fr) minmax(260px,2fr) minmax(150px,1fr) 50px minmax(110px,auto); } .edit-target { outline:2px solid var(--primary-color); outline-offset:-2px; transition:outline-color .3s; }
+    .preview-legend,.preview-row { display:grid; grid-template-columns:72px minmax(145px,auto) minmax(320px,2fr) minmax(150px,1fr) 50px minmax(110px,auto); gap:10px; align-items:center; padding:8px 14px; } .preview-legend { position:sticky; top:0; z-index:4; color:var(--secondary-text-color); background:var(--secondary-background-color); border-radius:9px; font-size:11px; text-transform:uppercase; } .preview-day { overflow:hidden; } .preview-day .day-heading { display:flex; justify-content:space-between; align-items:center; } .preview-day .day-heading span { color:var(--secondary-text-color); font-size:12px; } .preview-row { min-height:48px; border-top:1px solid var(--divider-color); } .preview-row.disabled { opacity:.58; } .preview-time { font-variant-numeric:tabular-nums; } .preview-message,.preview-speakers { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .preview-speakers { color:var(--secondary-text-color); font-size:12px; }
+    .source-badge,.preview-state,.conflict { display:inline-block; width:max-content; padding:3px 7px; border-radius:99px; font-size:11px; font-weight:600; } .source-badge { color:var(--source-color); background:color-mix(in srgb,var(--source-color) 14%,transparent); } .preview-state.on { color:var(--success-color); background:color-mix(in srgb,var(--success-color) 12%,transparent); } .preview-state.off { color:var(--secondary-text-color); background:var(--secondary-background-color); } .preview-tools { display:flex; align-items:center; justify-content:flex-end; gap:5px; } .preview-tools button { padding:5px 8px; } .conflict { color:var(--error-color); background:color-mix(in srgb,var(--error-color) 12%,transparent); } .empty.compact { padding:16px; } .one-time-preview .preview-row { grid-template-columns:155px minmax(145px,auto) minmax(320px,2fr) minmax(150px,1fr) 50px minmax(110px,auto); } .edit-target { outline:2px solid var(--primary-color); outline-offset:-2px; transition:outline-color .3s; }
     .routine-header,.routine-step { display:grid; grid-template-columns:42px 140px 110px 150px minmax(300px,2fr) minmax(160px,1fr) 100px; gap:8px; padding:9px 13px; align-items:center; } .routine-step { border-top:1px solid var(--divider-color); } .routine-heading [data-routine-name],.set-heading [data-set-name] { font-size:18px; font-weight:600; flex:1; }
     .set-items { padding:12px; display:grid; gap:8px; } .set-item { display:grid; grid-template-columns:35px 1fr 42px; gap:8px; align-items:center; }
     .status { font-size:12px; text-align:center; } .status.completed { color:var(--success-color); } .status.missed,.error { color:var(--error-color); } .empty,.loading { padding:28px; text-align:center; color:var(--secondary-text-color); } .error { padding:12px; border-radius:8px; background:color-mix(in srgb,var(--error-color) 12%,transparent); }
