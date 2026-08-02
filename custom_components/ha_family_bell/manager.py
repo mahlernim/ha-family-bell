@@ -11,7 +11,7 @@ from random import SystemRandom, choice
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.template import Template
@@ -472,13 +472,20 @@ class FamilyBellManager:
                     changed = True
             if occurrence is None:
                 continue
+
+            @callback
+            def handle_timer(
+                _now: datetime,
+                scheduled_key: str = key,
+                scheduled_generation: int = generation,
+            ) -> None:
+                self.hass.async_create_task(
+                    self._async_timer_fired(scheduled_key, scheduled_generation)
+                )
+
             self._timers[key] = async_track_point_in_utc_time(
                 self.hass,
-                lambda _now,
-                scheduled_key=key,
-                scheduled_generation=generation: self.hass.async_create_task(
-                    self._async_timer_fired(scheduled_key, scheduled_generation)
-                ),
+                handle_timer,
                 occurrence,
             )
         if changed:

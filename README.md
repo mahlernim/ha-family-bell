@@ -16,6 +16,7 @@ Standalone weekly rows remain independent. Routine bells can cover several weekd
 - Weekly Schedule contains only editable standalone weekly bells; routine bells stay in Routines
 - Color-coded owner badges, enabled state, speaker-overlap conflict warnings, and owner-aware Edit links
 - Guided morning conversion that previews grouped routine bells and extracted literal random lists before committing
+- Immediate enabled-state toggles with progress feedback, cascading routine switches, save confirmation states, and action tooltips
 - Single-time events with pending, completed, and missed states
 - Add, edit, test, duplicate, copy to days, move to another day, and delete
 - Integration-owned `.storage` data; no generated automation YAML
