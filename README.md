@@ -2,20 +2,20 @@
 
 HA Family Bell is a HACS-installable Home Assistant custom integration for managing weekly announcements, reusable routines, random-message sets, and single-time events in one place.
 
-Standalone weekly rows remain independent. Routine steps can cover several weekdays, and linked message sets intentionally propagate edits to every bell or routine step that uses them.
+Standalone weekly rows remain independent. Routine bells can cover several weekdays, and linked message sets intentionally propagate edits to every linked bell.
 
 ## What it provides
 
-- Week Preview opens by default with a compact Monday-to-Sunday view of weekly bells and routine steps
+- Week Preview opens by default with a dense Monday-to-Sunday view optimized for many visible bells
 - Sidebar panel with Week Preview, Weekly Schedule, Routines, Single-time Events, and Message Sets tabs
 - One row per bell: active, day/date, time, message, speakers, and actions
-- Named routines with exact-time steps and weekday selection per step
-- Explicit routine master switch plus immediate Enable all bells and Disable all bells controls
+- Named routines with exact-time bells and weekday selection per bell
+- Explicit routine master switch plus immediate All on and All off controls
 - Reusable random-message sets with enabled variants and persisted shuffle-without-repeats
 - Direct Jinja templates or linked message sets for every bell type
-- Weekly Schedule contains only editable standalone weekly bells; routine steps stay in Routines
+- Weekly Schedule contains only editable standalone weekly bells; routine bells stay in Routines
 - Color-coded owner badges, enabled state, speaker-overlap conflict warnings, and owner-aware Edit links
-- Guided morning conversion that previews grouped steps and extracted literal random lists before committing
+- Guided morning conversion that previews grouped routine bells and extracted literal random lists before committing
 - Single-time events with pending, completed, and missed states
 - Add, edit, test, duplicate, copy to days, move to another day, and delete
 - Integration-owned `.storage` data; no generated automation YAML
@@ -28,7 +28,7 @@ Standalone weekly rows remain independent. Routine steps can cover several weekd
 
 ## Safety behavior
 
-The master schedule switch starts **off**. Newly added bells and routine steps also start off. The v1-to-v2 upgrade preserves the master, row, and one-time-event states and does not modify legacy Home Assistant automations.
+The master schedule switch starts **off**. Newly added bells also start off. The v1-to-v2 upgrade preserves the master, row, and one-time-event states and does not modify legacy Home Assistant automations.
 
 The conversion wizard performs a read-only preview first. Its commit replaces only the explicitly selected weekly rows and leaves the master switch unchanged.
 
@@ -105,17 +105,21 @@ For example, enter `Boys, it's %time%! %randomset%`. The editor shows a live exa
 
 From **Weekly Schedule**, select **Create Morning Routine**. The default 05:00–11:59 window identifies candidates, while checkboxes let you exclude individual rows. Preview groups equivalent time/message/speaker rows and merges their weekdays. A single literal Jinja expression such as `{{ ['First', 'Second'] | random }}` becomes a linked set; complex expressions stay as direct templates.
 
-The final replacement requires a separate confirmation. Keep legacy automations active while the new schedule remains paused, test representative routine steps, and perform the automation cutover separately.
+The final replacement requires a separate confirmation. Keep legacy automations active while the new schedule remains paused, test representative routine bells, and perform the automation cutover separately.
 
 ## Week Preview
 
 **Week Preview** is the default read-only overview. It combines standalone weekly bells and expanded routine steps into compact Monday-to-Sunday lists without duplicating schedule records. The simplified grid shows time, source, message/set, speakers, state, and Edit. Each weekly/routine owner has a stable distinct source color, and **Edit** jumps to that source's owning tab. An optional filter hides disabled items.
 
+Desktop preview rows intentionally use single-line text, small badges, compact day headers, and a pencil Edit action so substantially more of the week fits on screen. Full messages and speaker lists remain available as hover text when truncated.
+
 Rows at the same day and exact time are marked **Conflict** when they share at least one speaker. This is a review warning only; the scheduler's speaker lock still prevents overlapping playback. Pending single-time events appear in a separate section below the recurring week.
 
 ## Routine controls
 
-**Routine active** is the routine-level master switch: turning it off pauses every bell in that routine while preserving the individual step choices. **Enable all bells** and **Disable all bells** immediately save the corresponding enabled state to every step in that routine. They do not affect other routines or the global schedule switch.
+**Routine active** is the routine-level master switch: turning it off pauses every bell in that routine while preserving the individual choices. **All on** and **All off** immediately save the corresponding enabled state to every bell in that routine. They do not affect other routines or the global schedule switch.
+
+The routine grid omits the redundant Step label column. Exact time, days, message/set, and speakers define each bell; legacy step names remain stored internally for compatibility and diagnostics.
 
 ## Migration workflow
 

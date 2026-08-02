@@ -223,7 +223,7 @@ def test_panel_defaults_to_combined_preview_and_keeps_weekly_standalone() -> Non
     )
     assert 'this.activeTab = "preview"' in panel_source
     assert 'if (this.activeTab === "preview") main = this.weekPreviewGrid();' in panel_source
-    assert "Standalone recurring bells only. Routine steps are edited in Routines." in panel_source
+    assert "Standalone recurring bells. Routine bells are edited in Routines." in panel_source
     assert "routineOccurrenceRow" not in panel_source
     assert 'data-preview-owner="${entry.ownerType}"' in panel_source
     assert "<span>Source</span><span>Message / set</span>" in panel_source
@@ -233,3 +233,7 @@ def test_panel_defaults_to_combined_preview_and_keeps_weekly_standalone() -> Non
     assert 'data-routine-action="disable-all"' in panel_source
     assert "Routine active" in panel_source
     assert "This saves immediately." in panel_source
+    assert '<div class="routine-header"><span>On</span><span>Time</span>' in panel_source
+    assert "<span>On</span><span>Step</span>" not in panel_source
+    assert 'data-field="name" type="hidden"' in panel_source
+    assert "min-height:32px" in panel_source
