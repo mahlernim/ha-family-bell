@@ -215,3 +215,14 @@ def test_websocket_record_keys_do_not_reuse_protocol_id() -> None:
     assert 'vol.Required("bell_id"): str' in websocket_source
     assert 'vol.Required("routine_id"): str' in websocket_source
     assert 'vol.Required("set_id"): str' in websocket_source
+
+
+def test_panel_defaults_to_combined_preview_and_keeps_weekly_standalone() -> None:
+    panel_source = MODULE_PATH.parent.joinpath("frontend", "ha-family-bell-panel.js").read_text(
+        encoding="utf-8"
+    )
+    assert 'this.activeTab = "preview"' in panel_source
+    assert 'if (this.activeTab === "preview") main = this.weekPreviewGrid();' in panel_source
+    assert "Standalone recurring bells only. Routine steps are edited in Routines." in panel_source
+    assert "routineOccurrenceRow" not in panel_source
+    assert 'data-preview-owner="${entry.ownerType}"' in panel_source

@@ -6,12 +6,14 @@ Standalone weekly rows remain independent. Routine steps can cover several weekd
 
 ## What it provides
 
-- Sidebar panel with Weekly Schedule, Routines, Single-time Events, and Message Sets tabs
+- Week Preview opens by default with a compact Monday-to-Sunday view of weekly bells and routine steps
+- Sidebar panel with Week Preview, Weekly Schedule, Routines, Single-time Events, and Message Sets tabs
 - One row per bell: active, day/date, time, message, speakers, and actions
 - Named routines with exact-time steps and weekday selection per step
 - Reusable random-message sets with enabled variants and persisted shuffle-without-repeats
 - Direct Jinja templates or linked message sets for every bell type
-- Read-only routine occurrences in the weekly overview
+- Weekly Schedule contains only editable standalone weekly bells; routine steps stay in Routines
+- Preview source badges, enabled state, speaker-overlap conflict warnings, and owner-aware Edit links
 - Guided morning conversion that previews grouped steps and extracted literal random lists before committing
 - Single-time events with pending, completed, and missed states
 - Add, edit, test, duplicate, copy to days, move to another day, and delete
@@ -103,6 +105,12 @@ For example, enter `Boys, it's %time%! %randomset%`. The editor shows a live exa
 From **Weekly Schedule**, select **Create Morning Routine**. The default 05:00–11:59 window identifies candidates, while checkboxes let you exclude individual rows. Preview groups equivalent time/message/speaker rows and merges their weekdays. A single literal Jinja expression such as `{{ ['First', 'Second'] | random }}` becomes a linked set; complex expressions stay as direct templates.
 
 The final replacement requires a separate confirmation. Keep legacy automations active while the new schedule remains paused, test representative routine steps, and perform the automation cutover separately.
+
+## Week Preview
+
+**Week Preview** is the default read-only overview. It combines standalone weekly bells and expanded routine steps into compact Monday-to-Sunday lists without duplicating schedule records. Use the source badge to distinguish **Weekly** from **Routine**, and use **Edit** to jump to the record's owning tab. An optional filter hides disabled items.
+
+Rows at the same day and exact time are marked **Conflict** when they share at least one speaker. This is a review warning only; the scheduler's speaker lock still prevents overlapping playback. Pending single-time events appear in a separate section below the recurring week.
 
 ## Migration workflow
 

@@ -5,7 +5,8 @@ class HaFamilyBellPanel extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this.data = null;
-    this.activeTab = "weekly";
+    this.activeTab = "preview";
+    this.previewActiveOnly = false;
     this.loading = false;
     this.error = "";
     this._hass = null;
@@ -129,17 +130,112 @@ class HaFamilyBellPanel extends HTMLElement {
     </div>`;
   }
 
-  routineOccurrenceRow(row) {
-    const message = row.message_source.kind === "message_set"
-      ? this.data.message_sets.find((set) => set.id === row.message_source.set_id)?.name || "Missing set"
-      : row.message_source.template;
-    return `<div class="bell-row routine-summary">
-      <label class="enabled"><input type="checkbox" ${row.enabled ? "checked" : ""} disabled></label>
-      <span>${DAYS[row.weekday].slice(0, 3)}</span><span>${this.escape(row.time.slice(0, 5))}</span>
-      <span class="summary-message"><span class="badge">${this.escape(row.routine_name)}</span>${this.escape(message)}</span>
-      <span>${row.speakers.length} speaker${row.speakers.length === 1 ? "" : "s"}</span>
-      <button data-open-routine="${row.routine_id}">Edit in Routines</button>
+  messageSummary(source) {
+    const wrapper = this.friendlyTemplate(source.template);
+    if (source.kind !== "message_set") return wrapper;
+    const set = this.data.message_sets.find((item) => item.id === source.set_id);
+    const name = set?.name || "Missing set";
+    const extra = wrapper && wrapper !== "%randomset%" ? ` · ${wrapper}` : "";
+    return `Set: ${name}${extra}`;
+  }
+
+  speakerSummary(speakers) {
+    const byId = new Map(this.speakers().map((state) => [state.entity_id, this.name(state)]));
+    return speakers.map((entityId) => byId.get(entityId) || entityId).join(", ") || "No speakers";
+  }
+
+  previewEntries() {
+    const entries = this.data.bells.filter((bell) => bell.type === "weekly").map((bell) => ({
+      key: `weekly:${bell.id}:${bell.weekday}`,
+      weekday: bell.weekday,
+      time: bell.time,
+      enabled: bell.enabled,
+      source: "Weekly",
+      sourceClass: "weekly",
+      title: "Weekly schedule",
+      message: this.messageSummary(bell.message_source),
+      speakers: bell.speakers,
+      ownerType: "weekly",
+      ownerId: bell.id,
+    }));
+    for (const row of this.data.routine_occurrences) {
+      entries.push({
+        key: `routine:${row.routine_id}:${row.step_id}:${row.weekday}`,
+        weekday: row.weekday,
+        time: row.time,
+        enabled: row.enabled,
+        source: "Routine",
+        sourceClass: "routine",
+        title: `${row.routine_name} · ${row.step_name || row.time.slice(0, 5)}`,
+        message: this.messageSummary(row.message_source),
+        speakers: row.speakers,
+        ownerType: "routine",
+        ownerId: row.routine_id,
+        stepId: row.step_id,
+      });
+    }
+    const groups = new Map();
+    for (const entry of entries) {
+      const key = `${entry.weekday}:${entry.time}`;
+      groups.set(key, [...(groups.get(key) || []), entry]);
+    }
+    for (const rows of groups.values()) {
+      for (let left = 0; left < rows.length; left += 1) {
+        for (let right = left + 1; right < rows.length; right += 1) {
+          if (rows[left].speakers.some((speaker) => rows[right].speakers.includes(speaker))) {
+            rows[left].conflict = true;
+            rows[right].conflict = true;
+          }
+        }
+      }
+    }
+    return entries.sort((a, b) => a.weekday - b.weekday || a.time.localeCompare(b.time) || a.title.localeCompare(b.title));
+  }
+
+  previewRow(entry) {
+    return `<div class="preview-row ${entry.enabled ? "" : "disabled"}" data-preview-key="${this.escape(entry.key)}">
+      <strong class="preview-time">${this.escape(entry.displayTime || entry.time.slice(0, 5))}</strong>
+      <span><span class="source-badge ${entry.sourceClass}">${entry.source}</span></span>
+      <span class="preview-title">${this.escape(entry.title)}</span>
+      <span class="preview-message" title="${this.escape(entry.message)}">${this.escape(entry.message)}</span>
+      <span class="preview-speakers" title="${this.escape(this.speakerSummary(entry.speakers))}">${this.escape(this.speakerSummary(entry.speakers))}</span>
+      <span class="preview-state ${entry.enabled ? "on" : "off"}">${entry.enabled ? "On" : "Off"}</span>
+      <span class="preview-tools">${entry.conflict ? `<span class="conflict" title="Same time and at least one shared speaker">Conflict</span>` : ""}<button data-preview-owner="${entry.ownerType}" data-owner-id="${entry.ownerId}" ${entry.stepId ? `data-step-id="${entry.stepId}"` : ""}>Edit</button></span>
     </div>`;
+  }
+
+  oneTimePreviewRow(bell) {
+    const date = new Date(bell.datetime);
+    const label = Number.isNaN(date.getTime()) ? bell.datetime : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    const entry = {
+      key: `one-time:${bell.id}`,
+      time: label,
+      displayTime: label,
+      enabled: bell.enabled,
+      source: "One-time",
+      sourceClass: "one-time",
+      title: "Single-time event",
+      message: this.messageSummary(bell.message_source),
+      speakers: bell.speakers,
+      ownerType: "one_time",
+      ownerId: bell.id,
+    };
+    return this.previewRow(entry);
+  }
+
+  weekPreviewGrid() {
+    const entries = this.previewEntries();
+    const visible = this.previewActiveOnly ? entries.filter((entry) => entry.enabled) : entries;
+    const oneTime = this.data.bells.filter((bell) => bell.type === "one_time" && bell.status === "pending" && new Date(bell.datetime).getTime() >= Date.now())
+      .filter((bell) => !this.previewActiveOnly || bell.enabled)
+      .sort((a, b) => a.datetime.localeCompare(b.datetime));
+    return `<div class="toolbar preview-toolbar"><div><h2>Week preview</h2><p>Read-only combined view of standalone weekly bells and routine steps.</p></div><label class="preview-filter"><input id="preview-active-only" type="checkbox" ${this.previewActiveOnly ? "checked" : ""}> Enabled items only</label></div>
+      <div class="preview-legend"><span>Time</span><span>Source</span><span>Bell</span><span>Message / set</span><span>Speakers</span><span>State</span><span></span></div>
+      ${DAYS.map((day, weekday) => {
+        const rows = visible.filter((entry) => entry.weekday === weekday);
+        return `<section class="day-group preview-day"><div class="day-heading"><h2>${day}</h2><span>${rows.length} bell${rows.length === 1 ? "" : "s"}</span></div>${rows.length ? rows.map((entry) => this.previewRow(entry)).join("") : `<div class="empty compact">No bells</div>`}</section>`;
+      }).join("")}
+      <section class="day-group preview-day one-time-preview"><div class="day-heading"><h2>Upcoming one-time events</h2><span>${oneTime.length} event${oneTime.length === 1 ? "" : "s"}</span></div>${oneTime.length ? oneTime.map((bell) => this.oneTimePreviewRow(bell)).join("") : `<div class="empty compact">No pending events</div>`}</section>`;
   }
 
   oneTimeRow(bell) {
@@ -156,12 +252,11 @@ class HaFamilyBellPanel extends HTMLElement {
 
   weeklyGrid() {
     const bells = this.data.bells.filter((bell) => bell.type === "weekly");
-    return `<div class="toolbar"><div><h2>Weekly schedule</h2><p>Routine-owned rows are summaries; edit them in Routines.</p></div><button id="morning-wizard" class="primary">Create Morning Routine</button></div>` + DAYS.map((day, weekday) => {
+    return `<div class="toolbar"><div><h2>Weekly schedule</h2><p>Standalone recurring bells only. Routine steps are edited in Routines.</p></div><button id="morning-wizard" class="primary">Create Morning Routine</button></div>` + DAYS.map((day, weekday) => {
       const rows = bells.filter((bell) => bell.weekday === weekday);
-      const routineRows = this.data.routine_occurrences.filter((row) => row.weekday === weekday);
       return `<section class="day-group"><div class="day-heading"><h2>${day}</h2><button data-add="weekly" data-weekday="${weekday}">＋ Add bell</button></div>
         <div class="grid-header"><span>On</span><span>Day</span><span>Time</span><span>Message</span><span>Speakers</span><span>Actions</span></div>
-        ${rows.map((bell) => this.weeklyRow(bell)).join("")}${routineRows.map((row) => this.routineOccurrenceRow(row)).join("") || (!rows.length ? `<div class="empty">No bells</div>` : "")}</section>`;
+        ${rows.length ? rows.map((bell) => this.weeklyRow(bell)).join("") : `<div class="empty">No standalone bells</div>`}</section>`;
     }).join("");
   }
 
@@ -219,6 +314,7 @@ class HaFamilyBellPanel extends HTMLElement {
     if (!this.shadowRoot) return;
     let main = "";
     if (this.data) {
+      if (this.activeTab === "preview") main = this.weekPreviewGrid();
       if (this.activeTab === "weekly") main = this.weeklyGrid();
       if (this.activeTab === "routines") main = this.routinesGrid();
       if (this.activeTab === "one_time") main = this.oneTimeGrid();
@@ -227,7 +323,7 @@ class HaFamilyBellPanel extends HTMLElement {
     const body = !this.data ? `<div class="loading">${this.loading ? "Loading…" : "Waiting for Home Assistant…"}</div>` : `
       <header><div><h1>HA Family Bell</h1><p>${this.escape(this.data.timezone)} · routines · reusable messages · exact scheduling</p></div><label class="master"><input id="master" type="checkbox" ${this.data.global_enabled ? "checked" : ""}><span>${this.data.global_enabled ? "Schedule active" : "Schedule paused"}</span></label></header>
       ${this.error ? `<div class="error">${this.escape(this.error)}</div>` : ""}
-      <nav>${[["weekly", "Weekly schedule"], ["routines", "Routines"], ["one_time", "Single-time events"], ["message_sets", "Message sets"]].map(([id, label]) => `<button data-tab="${id}" class="${this.activeTab === id ? "active" : ""}">${label}</button>`).join("")}</nav>
+      <nav>${[["preview", "Week preview"], ["weekly", "Weekly schedule"], ["routines", "Routines"], ["one_time", "Single-time events"], ["message_sets", "Message sets"]].map(([id, label]) => `<button data-tab="${id}" class="${this.activeTab === id ? "active" : ""}">${label}</button>`).join("")}</nav>
       ${this.settingsPanel()}<main>${main}</main><dialog id="editor"></dialog>`;
     this.shadowRoot.innerHTML = `<style>${this.styles()}</style><div class="page">${body}</div>`;
     this.bind();
@@ -273,6 +369,8 @@ class HaFamilyBellPanel extends HTMLElement {
     this.bindMessageEditors();
     this.shadowRoot.querySelector("#master")?.addEventListener("change", (event) => this.call({ type: "ha_family_bell/set_enabled", enabled: event.target.checked }));
     this.shadowRoot.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => { this.activeTab = button.dataset.tab; this.render(); }));
+    this.shadowRoot.querySelector("#preview-active-only")?.addEventListener("change", (event) => { this.previewActiveOnly = event.target.checked; this.render(); });
+    this.shadowRoot.querySelectorAll("[data-preview-owner]").forEach((button) => button.addEventListener("click", () => this.openPreviewOwner(button)));
     this.shadowRoot.querySelectorAll("[data-add]").forEach((button) => button.addEventListener("click", () => this.openBellEditor(button.dataset.add, Number(button.dataset.weekday || 0))));
     this.shadowRoot.querySelectorAll(".bell-row button[data-action]").forEach((button) => button.addEventListener("click", () => this.bellAction(button.closest(".bell-row"), button.dataset.action)));
     this.shadowRoot.querySelectorAll("[data-open-routine]").forEach((button) => button.addEventListener("click", () => { this.activeTab = "routines"; this.render(); this.shadowRoot.querySelector(`[data-routine-id="${button.dataset.openRoutine}"]`)?.scrollIntoView(); }));
@@ -287,6 +385,17 @@ class HaFamilyBellPanel extends HTMLElement {
     this.shadowRoot.querySelector("#export-json")?.addEventListener("click", () => this.exportJson());
     this.shadowRoot.querySelector("#import-json")?.addEventListener("click", () => this.shadowRoot.querySelector("#import-file").click());
     this.shadowRoot.querySelector("#import-file")?.addEventListener("change", (event) => this.importJson(event.target.files[0]));
+  }
+
+  openPreviewOwner(button) {
+    const owner = button.dataset.previewOwner;
+    this.activeTab = owner === "routine" ? "routines" : owner;
+    this.render();
+    const selector = owner === "routine" ? `[data-routine-id="${button.dataset.ownerId}"]` : `[data-id="${button.dataset.ownerId}"]`;
+    const target = this.shadowRoot.querySelector(selector);
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    target?.classList.add("edit-target");
+    setTimeout(() => target?.classList.remove("edit-target"), 1800);
   }
 
   bellData(row) {
@@ -399,12 +508,15 @@ class HaFamilyBellPanel extends HTMLElement {
     .toolbar { margin:18px 0; } .day-heading,.routine-heading,.set-heading { padding:13px 16px; border-bottom:1px solid var(--divider-color); } .grid-header,.bell-row { display:grid; grid-template-columns:42px 76px 120px minmax(300px,2fr) minmax(160px,1fr) minmax(260px,auto); gap:9px; align-items:center; padding:9px 13px; } .grid-header.one-time,.bell-row.one-time { grid-template-columns:42px 135px 120px minmax(300px,2fr) minmax(160px,1fr) 80px minmax(220px,auto); } .grid-header,.routine-header { color:var(--secondary-text-color); font-size:12px; text-transform:uppercase; background:var(--secondary-background-color); } .bell-row { border-top:1px solid var(--divider-color); }
     .message-editor { display:grid; grid-template-columns:100px minmax(160px,1fr); gap:5px; } .message-editor [data-field="message-set"],.placeholder-tools { grid-column:1/-1; } .placeholder-tools { display:flex; align-items:center; gap:5px; flex-wrap:wrap; color:var(--secondary-text-color); font-size:11px; } .placeholder-tools button { padding:3px 7px; font-size:11px; } .placeholder-tools small { flex-basis:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } [hidden] { display:none!important; }
     .speaker-picker,.day-picker { position:relative; } .speaker-picker summary,.day-picker summary { border:1px solid var(--divider-color); border-radius:7px; padding:9px; cursor:pointer; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; } .speaker-options,.day-picker>div { position:absolute; z-index:10; min-width:250px; max-height:270px; overflow:auto; background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:9px; box-shadow:var(--ha-card-box-shadow); padding:7px; } .speaker-options label,.day-picker label { display:flex; gap:8px; padding:6px; }
-    .badge { display:inline-block; margin-right:8px; padding:3px 7px; border-radius:99px; color:var(--primary-color); background:color-mix(in srgb,var(--primary-color) 12%,transparent); font-size:11px; } .routine-summary { background:color-mix(in srgb,var(--primary-color) 4%,var(--card-background-color)); } .summary-message { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .badge { display:inline-block; margin-right:8px; padding:3px 7px; border-radius:99px; color:var(--primary-color); background:color-mix(in srgb,var(--primary-color) 12%,transparent); font-size:11px; }
+    .preview-toolbar { align-items:flex-end; } .preview-filter { display:flex; align-items:center; gap:8px; padding:9px 12px; border:1px solid var(--divider-color); border-radius:9px; background:var(--card-background-color); } .preview-filter input { width:18px; height:18px; accent-color:var(--primary-color); }
+    .preview-legend,.preview-row { display:grid; grid-template-columns:72px 78px minmax(190px,1.2fr) minmax(260px,2fr) minmax(150px,1fr) 50px minmax(110px,auto); gap:10px; align-items:center; padding:8px 14px; } .preview-legend { position:sticky; top:0; z-index:4; color:var(--secondary-text-color); background:var(--secondary-background-color); border-radius:9px; font-size:11px; text-transform:uppercase; } .preview-day { overflow:hidden; } .preview-day .day-heading { display:flex; justify-content:space-between; align-items:center; } .preview-day .day-heading span { color:var(--secondary-text-color); font-size:12px; } .preview-row { min-height:48px; border-top:1px solid var(--divider-color); } .preview-row.disabled { opacity:.58; } .preview-time { font-variant-numeric:tabular-nums; } .preview-title { font-weight:600; } .preview-message,.preview-speakers { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .preview-speakers { color:var(--secondary-text-color); font-size:12px; }
+    .source-badge,.preview-state,.conflict { display:inline-block; width:max-content; padding:3px 7px; border-radius:99px; font-size:11px; font-weight:600; } .source-badge.weekly { color:var(--info-color,var(--primary-color)); background:color-mix(in srgb,var(--info-color,var(--primary-color)) 12%,transparent); } .source-badge.routine { color:var(--primary-color); background:color-mix(in srgb,var(--primary-color) 12%,transparent); } .source-badge.one-time { color:var(--warning-color,#f5a623); background:color-mix(in srgb,var(--warning-color,#f5a623) 14%,transparent); } .preview-state.on { color:var(--success-color); background:color-mix(in srgb,var(--success-color) 12%,transparent); } .preview-state.off { color:var(--secondary-text-color); background:var(--secondary-background-color); } .preview-tools { display:flex; align-items:center; justify-content:flex-end; gap:5px; } .preview-tools button { padding:5px 8px; } .conflict { color:var(--error-color); background:color-mix(in srgb,var(--error-color) 12%,transparent); } .empty.compact { padding:16px; } .one-time-preview .preview-row { grid-template-columns:155px 78px minmax(190px,1.2fr) minmax(260px,2fr) minmax(150px,1fr) 50px minmax(110px,auto); } .edit-target { outline:2px solid var(--primary-color); outline-offset:-2px; transition:outline-color .3s; }
     .routine-header,.routine-step { display:grid; grid-template-columns:42px 140px 110px 150px minmax(300px,2fr) minmax(160px,1fr) 100px; gap:8px; padding:9px 13px; align-items:center; } .routine-step { border-top:1px solid var(--divider-color); } .routine-heading [data-routine-name],.set-heading [data-set-name] { font-size:18px; font-weight:600; flex:1; }
     .set-items { padding:12px; display:grid; gap:8px; } .set-item { display:grid; grid-template-columns:35px 1fr 42px; gap:8px; align-items:center; }
     .status { font-size:12px; text-align:center; } .status.completed { color:var(--success-color); } .status.missed,.error { color:var(--error-color); } .empty,.loading { padding:28px; text-align:center; color:var(--secondary-text-color); } .error { padding:12px; border-radius:8px; background:color-mix(in srgb,var(--error-color) 12%,transparent); }
     dialog { width:min(760px,calc(100vw - 32px)); max-height:90vh; overflow:auto; border:0; border-radius:14px; padding:22px; color:var(--primary-text-color); background:var(--card-background-color); box-shadow:0 12px 45px #0007; } dialog::backdrop { background:#0008; } dialog form { display:grid; gap:14px; } .day-checks { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; } .day-checks label { display:flex; gap:7px; align-items:center; } .window { display:grid; grid-template-columns:1fr 1fr 2fr; gap:8px; } .window label { display:grid; gap:5px; } .candidate-list { max-height:300px; overflow:auto; border:1px solid var(--divider-color); border-radius:8px; } .candidate-list label { display:grid; grid-template-columns:28px 90px 1fr; gap:7px; padding:7px; border-top:1px solid var(--divider-color); } .preview { padding:12px; border-radius:8px; background:var(--secondary-background-color); }
-    @media(max-width:950px){ .page{padding:12px} header,.toolbar{align-items:flex-start;flex-direction:column}.settings-grid{grid-template-columns:1fr}.grid-header,.routine-header{display:none}.bell-row,.bell-row.one-time,.routine-step{grid-template-columns:42px 1fr 1fr}.message-editor,.speaker-picker,.actions,.status,.day-picker{grid-column:1/-1}.routine-heading,.set-heading{flex-wrap:wrap}.window{grid-template-columns:1fr}.candidate-list label{grid-template-columns:28px 80px 1fr} }
+    @media(max-width:950px){ .page{padding:12px} header,.toolbar{align-items:flex-start;flex-direction:column}.settings-grid{grid-template-columns:1fr}.grid-header,.routine-header,.preview-legend{display:none}.bell-row,.bell-row.one-time,.routine-step{grid-template-columns:42px 1fr 1fr}.message-editor,.speaker-picker,.actions,.status,.day-picker{grid-column:1/-1}.routine-heading,.set-heading{flex-wrap:wrap}.window{grid-template-columns:1fr}.candidate-list label{grid-template-columns:28px 80px 1fr}.preview-row,.one-time-preview .preview-row{grid-template-columns:65px 72px 1fr;gap:7px}.preview-message,.preview-speakers{grid-column:1/-1;white-space:normal}.preview-state{grid-column:1}.preview-tools{grid-column:2/-1;justify-content:flex-end} }
   `; }
 }
 
