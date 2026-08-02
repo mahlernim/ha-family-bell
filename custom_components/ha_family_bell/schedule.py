@@ -19,6 +19,13 @@ FRIENDLY_PLACEHOLDERS = {
     "%time%": "{{ now().strftime('%H:%M') }}",
     "%randomset%": "{{ random_message }}",
 }
+
+
+def should_cache_tts(target_type: str, *, test: bool, recurring_cache: bool) -> bool:
+    """Return whether this announcement should use the Home Assistant TTS cache."""
+    return bool(recurring_cache and not test and target_type in {"weekly", "routine"})
+
+
 _RANDOM_EXPRESSION = re.compile(r"{{\s*(\[(?:[^\[\]]|\n)*\])\s*\|\s*random\s*}}", re.DOTALL)
 
 

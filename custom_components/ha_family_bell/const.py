@@ -20,6 +20,7 @@ EVENT_FIRED: Final = "ha_family_bell_fired"
 DEFAULT_SETTINGS: Final = {
     "tts_service": "tts.google_translate_say",
     "language": "en-gb",
+    "cache_recurring_tts": True,
     "intro_urls": [],
     "intro_delay": 4,
     "queue_hold_seconds": 3,

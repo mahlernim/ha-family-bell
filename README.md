@@ -24,7 +24,8 @@ Standalone weekly rows remain independent. Routine bells can cover several weekd
 - Master schedule switch and `sensor.ha_family_bell_next_bell`
 - Speaker-aware queuing: bells sharing a speaker wait; disjoint speaker sets can run in parallel
 - JSON export and safe import (all imported rows are forced disabled)
-- Optional intro sound and configurable TTS service/language
+- Optional fixed or randomly selected chime files and configurable TTS service/language
+- Optional Home Assistant TTS caching for recurring weekly and routine announcements
 - Home Assistant templates in direct messages, set variants, and linked wrappers
 
 ## Safety behavior
@@ -55,8 +56,9 @@ Copy `custom_components/ha_family_bell` into the Home Assistant `custom_componen
 
 - **TTS service** defaults to `tts.google_translate_say` and accepts any `domain.service` using the legacy `entity_id` plus `message` shape.
 - **Language** defaults to `en-gb`.
-- **Intro URLs** are optional media URLs, one per line. One is chosen randomly for each bell.
-- **Intro delay** waits between the intro and speech.
+- **Cache recurring announcements** defaults on. Weekly and routine bells request Home Assistant's native TTS cache; single-time events and manual tests explicitly bypass it.
+- **Chime files** accepts one media ID, path, or URL per line. One entry is a fixed chime, multiple entries are chosen randomly for each bell, and an empty list disables the chime. Existing `intro_urls` storage remains compatible.
+- **Chime-to-speech delay** waits between the chime and speech.
 - **Minimum queue hold** keeps a speaker lock after TTS submission. The manager also estimates speech duration from word count, reducing overlap between bells that share a speaker.
 
 TTS services with a different service-data schema are not yet supported by the grid settings.
