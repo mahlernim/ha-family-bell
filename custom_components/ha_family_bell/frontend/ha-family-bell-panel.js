@@ -350,8 +350,8 @@ class HaFamilyBellPanel extends HTMLElement {
     .day-group { background: var(--card-background-color); border-radius: 14px; margin-bottom: 18px; box-shadow: var(--ha-card-box-shadow); overflow: visible; }
     .day-heading { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; border-bottom: 1px solid var(--divider-color); }
     .day-heading h2 { margin: 0; font-size: 18px; }
-    .grid-header, .bell-row { display: grid; grid-template-columns: 42px 76px 112px minmax(220px, 2fr) minmax(180px, 1fr) minmax(275px, auto); gap: 9px; align-items: center; padding: 9px 13px; }
-    .grid-header.one-time, .bell-row.one-time { grid-template-columns: 42px 135px 112px minmax(220px, 2fr) minmax(180px, 1fr) 85px minmax(225px, auto); }
+    .grid-header, .bell-row { display: grid; grid-template-columns: 42px 76px 150px minmax(220px, 2fr) minmax(180px, 1fr) minmax(275px, auto); gap: 9px; align-items: center; padding: 9px 13px; }
+    .grid-header.one-time, .bell-row.one-time { grid-template-columns: 42px 135px 150px minmax(220px, 2fr) minmax(180px, 1fr) 85px minmax(225px, auto); }
     .grid-header { color: var(--secondary-text-color); font-size: 12px; font-weight: 600; text-transform: uppercase; background: var(--secondary-background-color); }
     .bell-row { border-top: 1px solid var(--divider-color); }
     .bell-row:first-of-type { border-top: 0; }
