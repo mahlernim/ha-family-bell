@@ -1,138 +1,127 @@
 # HA Family Bell
 
-HA Family Bell is a HACS-installable Home Assistant custom integration for managing weekly announcements, reusable routines, random-message sets, and single-time events in one place.
+HA Family Bell is a Home Assistant custom integration for scheduling spoken
+announcements. It brings weekly bells, reusable routines, one-time events,
+message variation, chimes, and speaker selection into a single panel.
 
-Standalone weekly rows remain independent. Routine bells can cover several weekdays, and linked message sets intentionally propagate edits to every linked bell.
+> **Project status:** Beta. The integration is available through a HACS custom
+> repository and is not currently included in the default HACS catalog.
 
-## What it provides
+## Highlights
 
-- Week Preview opens by default with a dense Monday-to-Sunday view optimized for many visible bells
-- Sidebar panel with Week Preview, Weekly Schedule, Routines, Single-time Events, and Message Sets tabs
-- One row per bell: active, day/date, time, message, speakers, and actions
-- Named routines with exact-time bells and weekday selection per bell
-- Explicit routine master switch plus immediate All on and All off controls
-- Reusable random-message sets with enabled variants and persisted shuffle-without-repeats
-- Direct Jinja templates or linked message sets for every bell type
-- Weekly Schedule contains only editable standalone weekly bells; routine bells stay in Routines
-- Color-coded owner badges, enabled state, speaker-overlap conflict warnings, and owner-aware Edit links
-- Guided morning conversion that previews grouped routine bells and extracted literal random lists before committing
-- Single-time events with pending, completed, and missed states
-- Add, edit, test, duplicate, copy to days, move to another day, and delete
-- Integration-owned `.storage` data; no generated automation YAML
-- Exact next-occurrence timers that are rebuilt after every edit and restart
+- Compact week preview combining weekly bells and routine occurrences
+- Weekly announcements with exact local times and speaker selection
+- Reusable routines with independent times, weekdays, messages, and speakers
+- One-time announcements with pending, completed, and missed states
+- Message sets that rotate enabled variants without repeating until every
+  variant has been used
+- Direct Home Assistant templates or linked message sets for every bell type
+- Friendly `%time%` and `%randomset%` placeholders for common messages
+- Optional fixed or randomly selected chime files
+- Optional Home Assistant TTS caching for recurring announcements
+- Speaker-aware queuing to reduce overlapping playback
 - Master schedule switch and `sensor.ha_family_bell_next_bell`
-- Speaker-aware queuing: bells sharing a speaker wait; disjoint speaker sets can run in parallel
-- JSON export and safe import (all imported rows are forced disabled)
-- Optional intro sound and configurable TTS service/language
-- Home Assistant templates in direct messages, set variants, and linked wrappers
+- JSON export and safety-focused import
 
-## Safety behavior
+## Documentation
 
-The master schedule switch starts **off**. Newly added bells also start off. The v1-to-v2 upgrade preserves the master, row, and one-time-event states and does not modify legacy Home Assistant automations.
-
-The conversion wizard performs a read-only preview first. Its commit replaces only the explicitly selected weekly rows and leaves the master switch unchanged.
-
-At restart, expired single-time events within the configured grace period are run; older events become `missed`. Weekly bells that passed while Home Assistant was offline wait until their next weekly occurrence.
-
-Unavailable speakers are skipped. A one-time event becomes `missed` when no target is available or its announcement action fails. Weekly bells always schedule their next occurrence even after a failed execution.
+- [User guide](docs/user-guide.md) — installation, setup, everyday use, and
+  troubleshooting
+- [Report a problem](https://github.com/mahlernim/ha-family-bell/issues)
 
 ## Installation
 
 ### HACS custom repository
 
-1. In HACS, open **Integrations** and add this repository as a custom repository of type **Integration**.
+1. In HACS, open **Integrations** and add this repository as a custom
+   repository with the **Integration** category.
 2. Install **HA Family Bell** and restart Home Assistant.
-3. Go to **Settings → Devices & services → Add integration**, search for **HA Family Bell**, and add it.
-4. Open **HA Family Bell** in the sidebar. Configure announcement settings and add or import bells.
-5. Test selected rows, then enable rows and finally turn on the master schedule switch.
+3. Go to **Settings → Devices & services → Add integration**.
+4. Search for **HA Family Bell** and complete the setup.
+5. Open **HA Family Bell** from the sidebar.
 
-### Manual development install
+For first-time configuration and examples, continue with the
+[user guide](docs/user-guide.md).
 
-Copy `custom_components/ha_family_bell` into the Home Assistant `custom_components` directory, restart, and add the integration from the UI.
+### Manual installation
+
+Copy `custom_components/ha_family_bell` to the `custom_components` directory in
+your Home Assistant configuration, restart Home Assistant, and add the
+integration from **Settings → Devices & services**.
+
+## How scheduling works
+
+The panel separates scheduling into four areas:
+
+- **Weekly Schedule** contains independent recurring announcements.
+- **Routines** group related recurring announcements under one switch.
+- **Single-time Events** contain announcements that run once at a specific
+  date and time.
+- **Message Sets** contain reusable message variants shared by linked bells.
+
+**Week Preview** is a read-only overview. It expands routines into their weekly
+occurrences without creating duplicate schedule records. Source colors and Edit
+buttons identify where each announcement is managed.
+
+Three levels can control a routine announcement: the main schedule switch, the
+routine switch, and the individual bell switch. All three must be enabled for
+the announcement to run. Changing the routine switch also applies the same
+enabled state to every bell inside that routine.
+
+## Message placeholders
+
+The editor provides two readable placeholders for common Home Assistant
+templates:
+
+- `%time%` inserts the current Home Assistant local time as `HH:MM`.
+- `%randomset%` inserts the next enabled variant from the linked message set.
+
+For example:
+
+```text
+Good morning. It is %time%. %randomset%
+```
+
+Advanced Home Assistant Jinja templates remain supported. Common Jinja values
+are displayed as friendly placeholders in the editor when possible.
 
 ## Announcement settings
 
-- **TTS service** defaults to `tts.google_translate_say` and accepts any `domain.service` using the legacy `entity_id` plus `message` shape.
+- **TTS service** defaults to `tts.google_translate_say`. The selected service
+  must accept the legacy `entity_id`, `message`, `language`, and `cache` service
+  data used by the integration.
 - **Language** defaults to `en-gb`.
-- **Intro URLs** are optional media URLs, one per line. One is chosen randomly for each bell.
-- **Intro delay** waits between the intro and speech.
-- **Minimum queue hold** keeps a speaker lock after TTS submission. The manager also estimates speech duration from word count, reducing overlap between bells that share a speaker.
+- **Cache recurring announcements** asks Home Assistant to reuse generated
+  speech for scheduled weekly and routine announcements. One-time events and
+  manual tests bypass the cache.
+- **Chime files** accepts one media ID, local path, or URL per line. One entry
+  is used for every announcement; multiple entries are selected randomly; an
+  empty list disables the chime.
+- **Chime-to-speech delay** controls the pause between chime playback and TTS.
+- **Queue hold** adds a minimum speaker lock after an announcement is sent.
 
-TTS services with a different service-data schema are not yet supported by the grid settings.
+## Safety and recovery behavior
 
-## Data model
+- The main schedule switch and newly added bells start disabled.
+- Imported bells are always disabled and must be reviewed before activation.
+- Conversion tools show a preview and require confirmation before replacing
+  selected weekly bells.
+- A conversion does not enable, disable, or remove Home Assistant automations.
+- Weekly bells missed while Home Assistant is offline wait for their next
+  scheduled occurrence.
+- A recently due one-time event may run after restart within the built-in grace
+  period. Older events are marked `missed`.
+- Unavailable speakers are skipped. A one-time event is marked `missed` if no
+  selected speaker is available or the announcement fails.
 
-Weekly bell:
+## Data and migration
 
-```json
-{
-  "type": "weekly",
-  "weekday": 0,
-  "time": "08:05:00",
-  "enabled": true,
-  "message_source": {
-    "kind": "template",
-    "template": "Good morning. It is {{ now().strftime('%H:%M') }}."
-  },
-  "speakers": ["media_player.bedroom"]
-}
-```
+HA Family Bell stores its schedule in Home Assistant `.storage`; it does not
+generate automation YAML. Version 1 schedules migrate to the current data model
+without converting direct messages into routines or message sets.
 
-`weekday` uses Monday `0` through Sunday `6`. A one-time bell uses `type: "one_time"` and an ISO `datetime` instead. Existing v1 `message` strings migrate losslessly to direct template sources.
-
-A linked source uses a stable message-set ID and a wrapper containing `random_message`:
-
-```json
-{
-  "kind": "message_set",
-  "set_id": "set-uuid",
-  "template": "It is {{ now().strftime('%H:%M') }}. {{ random_message }}"
-}
-```
-
-The chosen set variant is rendered as a Home Assistant template first, then supplied to the wrapper as `random_message`. Manual tests do not advance the persisted shuffle bag.
-
-### Friendly message placeholders
-
-The panel hides common Jinja expressions behind readable placeholders:
-
-- `%time%` inserts the current Home Assistant local time as `HH:MM`.
-- `%randomset%` inserts the next shuffled message from the selected message set.
-
-For example, enter `Boys, it's %time%! %randomset%`. The editor shows a live example and provides **Time** and **Random message** insertion buttons. Existing Jinja values display as friendly placeholders automatically, while other advanced Jinja expressions remain unchanged and supported.
-
-## Morning Routine conversion
-
-From **Weekly Schedule**, select **Create Morning Routine**. The default 05:00–11:59 window identifies candidates, while checkboxes let you exclude individual rows. Preview groups equivalent time/message/speaker rows and merges their weekdays. A single literal Jinja expression such as `{{ ['First', 'Second'] | random }}` becomes a linked set; complex expressions stay as direct templates.
-
-The final replacement requires a separate confirmation. Keep legacy automations active while the new schedule remains paused, test representative routine bells, and perform the automation cutover separately.
-
-## Week Preview
-
-**Week Preview** is the default read-only overview. It combines standalone weekly bells and expanded routine steps into compact Monday-to-Sunday lists without duplicating schedule records. The simplified grid shows time, source, message/set, speakers, state, and Edit. Each weekly/routine owner has a stable distinct source color, and **Edit** jumps to that source's owning tab. An optional filter hides disabled items.
-
-Desktop preview rows intentionally use single-line text, small badges, compact day headers, and a pencil Edit action so substantially more of the week fits on screen. Full messages and speaker lists remain available as hover text when truncated.
-
-Rows at the same day and exact time are marked **Conflict** when they share at least one speaker. This is a review warning only; the scheduler's speaker lock still prevents overlapping playback. Pending single-time events appear in a separate section below the recurring week.
-
-## Routine controls
-
-**Routine active** is the routine-level master switch: turning it off pauses every bell in that routine while preserving the individual choices. **All on** and **All off** immediately save the corresponding enabled state to every bell in that routine. They do not affect other routines or the global schedule switch.
-
-The routine grid omits the redundant Step label column. Exact time, days, message/set, and speakers define each bell; legacy step names remain stored internally for compatibility and diagnostics.
-
-## Migration workflow
-
-Keep the existing automations active while reviewing imported rows:
-
-1. Import JSON; imported rows are forced off.
-2. Confirm row count, day, time, message, and speakers.
-3. Configure intro/TTS settings and test a few representative rows.
-4. Pause the old automations.
-5. Enable the reviewed rows and the HA Family Bell master switch.
-6. Observe at least one scheduled announcement before removing old automations.
-
-For private migrations, keep the exported or generated file under a name matching `private-import*.json`; those files are intentionally Git-ignored.
+Use **Export JSON** before a large edit or migration. Imported rows are created
+disabled so that times, messages, and speakers can be reviewed before use.
 
 ## Development
 
@@ -144,4 +133,5 @@ pytest
 node --check custom_components/ha_family_bell/frontend/ha-family-bell-panel.js
 ```
 
-Before a release, also run Hassfest and HACS validation from a GitHub Actions workflow or equivalent Linux environment.
+Before publishing a release, also run Hassfest and HACS validation from GitHub
+Actions or an equivalent Linux environment.

@@ -11,7 +11,7 @@ from random import SystemRandom, choice
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.template import Template
@@ -27,6 +27,7 @@ from .schedule import (
     normalize_bell,
     normalize_message_set,
     normalize_routine,
+    should_cache_tts,
     sort_key,
 )
 
@@ -185,6 +186,7 @@ class FamilyBellManager:
         allowed = {
             "tts_service",
             "language",
+            "cache_recurring_tts",
             "intro_urls",
             "intro_delay",
             "queue_hold_seconds",
@@ -198,6 +200,7 @@ class FamilyBellManager:
             raise BellValidationError("tts_service must be domain.service")
         settings["tts_service"] = service
         settings["language"] = str(settings["language"]).strip()
+        settings["cache_recurring_tts"] = bool(settings["cache_recurring_tts"])
         if not isinstance(settings["intro_urls"], list):
             raise BellValidationError("intro_urls must be a list")
         settings["intro_urls"] = [
@@ -472,13 +475,20 @@ class FamilyBellManager:
                     changed = True
             if occurrence is None:
                 continue
+
+            @callback
+            def handle_timer(
+                _now: datetime,
+                scheduled_key: str = key,
+                scheduled_generation: int = generation,
+            ) -> None:
+                self.hass.async_create_task(
+                    self._async_timer_fired(scheduled_key, scheduled_generation)
+                )
+
             self._timers[key] = async_track_point_in_utc_time(
                 self.hass,
-                lambda _now,
-                scheduled_key=key,
-                scheduled_generation=generation: self.hass.async_create_task(
-                    self._async_timer_fired(scheduled_key, scheduled_generation)
-                ),
+                handle_timer,
                 occurrence,
             )
         if changed:
@@ -597,7 +607,15 @@ class FamilyBellManager:
                     await asyncio.sleep(settings["intro_delay"])
 
             domain, service = settings["tts_service"].split(".", 1)
-            service_data: dict[str, Any] = {"entity_id": available, "message": rendered_message}
+            service_data: dict[str, Any] = {
+                "entity_id": available,
+                "message": rendered_message,
+                "cache": should_cache_tts(
+                    target["type"],
+                    test=test,
+                    recurring_cache=settings["cache_recurring_tts"],
+                ),
+            }
             if settings["language"]:
                 service_data["language"] = settings["language"]
             await self.hass.services.async_call(domain, service, service_data, blocking=True)

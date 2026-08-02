@@ -11,6 +11,9 @@ class HaFamilyBellPanel extends HTMLElement {
     this.error = "";
     this._hass = null;
     this._subscribed = false;
+    this._mutating = 0;
+    this._feedbackDepth = 0;
+    this._reloadQueued = false;
   }
 
   set hass(value) {
@@ -26,22 +29,122 @@ class HaFamilyBellPanel extends HTMLElement {
   async subscribe() {
     this._subscribed = true;
     try {
-      await this.hass.connection.subscribeMessage(() => this.load(), { type: "ha_family_bell/subscribe" });
+      await this.hass.connection.subscribeMessage(() => {
+        if (this._mutating || this._feedbackDepth) this._reloadQueued = true;
+        else this.load();
+      }, { type: "ha_family_bell/subscribe" });
     } catch (err) {
       this._subscribed = false;
       this.showError(err);
     }
   }
 
-  async call(message) {
+  async mutate(message, { reload = true } = {}) {
+    this._mutating += 1;
     try {
       this.error = "";
       const result = await this.hass.callWS(message);
-      await this.load();
+      if (reload) {
+        this._reloadQueued = false;
+        await this.load();
+      } else {
+        this._reloadQueued = false;
+      }
       return result;
     } catch (err) {
       this.showError(err);
       throw err;
+    } finally {
+      this._mutating = Math.max(0, this._mutating - 1);
+    }
+  }
+
+  async call(message) { return this.mutate(message); }
+
+  async saveWithFeedback(button, message, successLabel = "Saved") {
+    const initialLabel = button.textContent;
+    const started = Date.now();
+    this._feedbackDepth += 1;
+    button.disabled = true;
+    button.classList.add("is-saving");
+    button.textContent = "Saving…";
+    try {
+      await this.mutate(message, { reload: false });
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, 450 - (Date.now() - started))));
+      button.classList.remove("is-saving");
+      button.classList.add("is-saved");
+      button.textContent = `✓ ${successLabel}`;
+      await new Promise((resolve) => setTimeout(resolve, 850));
+      await this.load();
+    } catch (_err) {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.classList.remove("is-saving", "is-saved");
+        button.textContent = initialLabel;
+      }
+    } finally {
+      this._feedbackDepth = Math.max(0, this._feedbackDepth - 1);
+      this._reloadQueued = false;
+    }
+  }
+
+  async toggleWithFeedback(input, message, { onSuccess, onRollback } = {}) {
+    const enabled = input.checked;
+    const started = Date.now();
+    this._feedbackDepth += 1;
+    const container = input.closest("label") || input.parentElement;
+    input.disabled = true;
+    input.setAttribute("aria-busy", "true");
+    container?.classList.add("toggle-busy");
+    try {
+      await this.mutate(message, { reload: false });
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, 450 - (Date.now() - started))));
+      onSuccess?.(enabled);
+    } catch (_err) {
+      input.checked = !enabled;
+      onRollback?.(!enabled);
+    } finally {
+      this._feedbackDepth = Math.max(0, this._feedbackDepth - 1);
+      this._reloadQueued = false;
+      if (input.isConnected) {
+        input.disabled = false;
+        input.removeAttribute("aria-busy");
+        container?.classList.remove("toggle-busy");
+      }
+    }
+  }
+
+  async buttonWithFeedback(button, message, { loadingLabel = "Applying…", successLabel = "Done", reload = false } = {}) {
+    const initialLabel = button.textContent;
+    const started = Date.now();
+    this._feedbackDepth += 1;
+    button.disabled = true;
+    button.classList.add("is-saving");
+    button.textContent = loadingLabel;
+    try {
+      await this.mutate(message, { reload: false });
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, 280 - (Date.now() - started))));
+      button.classList.remove("is-saving");
+      button.classList.add("is-saved");
+      button.textContent = `✓ ${successLabel}`;
+      await new Promise((resolve) => setTimeout(resolve, 650));
+      if (reload) await this.load();
+      else if (button.isConnected) {
+        button.disabled = false;
+        button.classList.remove("is-saved");
+        button.textContent = initialLabel;
+      }
+      return true;
+    } catch (_err) {
+      if (button.isConnected) {
+        button.disabled = false;
+        button.classList.remove("is-saving", "is-saved");
+        button.textContent = initialLabel;
+      }
+      return false;
+    } finally {
+      this._feedbackDepth = Math.max(0, this._feedbackDepth - 1);
+      this._reloadQueued = false;
     }
   }
 
@@ -126,7 +229,7 @@ class HaFamilyBellPanel extends HTMLElement {
       <select data-field="weekday">${DAYS.map((day, i) => `<option value="${i}" ${bell.weekday === i ? "selected" : ""}>${day.slice(0, 3)}</option>`).join("")}</select>
       <input data-field="time" type="time" step="1" value="${this.escape(bell.time)}">
       ${this.messageEditor(bell.message_source)}${this.speakerPicker(bell)}
-      <div class="actions"><button data-action="save" class="primary">Save</button><button data-action="test" title="Test now" aria-label="Test now">▶</button><button data-action="copy" title="Copy to other days">Days</button><button data-action="duplicate" title="Duplicate bell" aria-label="Duplicate bell">⧉</button><button data-action="delete" class="danger" title="Delete bell" aria-label="Delete bell">×</button></div>
+      <div class="actions"><button data-action="save" class="primary">Save</button><button data-action="test" data-tooltip="Play now" aria-label="Play now">▶</button><button data-action="copy" title="Copy to other days">Days</button><button data-action="duplicate" title="Duplicate bell" aria-label="Duplicate bell">⧉</button><button data-action="delete" class="danger" data-tooltip="Delete bell" aria-label="Delete bell">×</button></div>
     </div>`;
   }
 
@@ -248,7 +351,7 @@ class HaFamilyBellPanel extends HTMLElement {
       <input data-field="date" type="date" value="${local.slice(0, 10)}"><input data-field="time" type="time" step="1" value="${local.slice(11, 19)}">
       ${this.messageEditor(bell.message_source)}${this.speakerPicker(bell)}
       <span class="status ${bell.status}">${this.escape(bell.status)}</span>
-      <div class="actions"><button data-action="save" class="primary">Save</button><button data-action="test">▶</button><button data-action="duplicate">＋</button><button data-action="delete" class="danger">×</button></div>
+      <div class="actions"><button data-action="save" class="primary">Save</button><button data-action="test" data-tooltip="Play now" aria-label="Play now">▶</button><button data-action="duplicate" title="Duplicate event" aria-label="Duplicate event">＋</button><button data-action="delete" class="danger" data-tooltip="Delete event" aria-label="Delete event">×</button></div>
     </div>`;
   }
 
@@ -276,7 +379,7 @@ class HaFamilyBellPanel extends HTMLElement {
       <input data-field="time" type="time" step="1" value="${this.escape(step.time)}">
       <details class="day-picker"><summary>${step.weekdays.map((day) => DAYS[day].slice(0, 3)).join(", ")}</summary><div>${DAYS.map((day, i) => `<label><input data-weekday="${i}" type="checkbox" ${step.weekdays.includes(i) ? "checked" : ""}>${day.slice(0, 3)}</label>`).join("")}</div></details>
       ${this.messageEditor(step.message_source)}${this.speakerPicker(step)}
-      <div class="actions"><button data-step-action="test">▶</button><button data-step-action="delete" class="danger">×</button></div>
+      <div class="actions"><button data-step-action="test" data-tooltip="Play now" aria-label="Play now">▶</button><button data-step-action="delete" class="danger" data-tooltip="Delete bell" aria-label="Delete bell">×</button></div>
     </div>`;
   }
 
@@ -295,7 +398,7 @@ class HaFamilyBellPanel extends HTMLElement {
 
   messageSetCard(set) {
     return `<section class="message-set-card" data-set-id="${set.id}"><div class="set-heading"><input data-set-name value="${this.escape(set.name)}"><span>${set.messages.filter((item) => item.enabled).length} enabled</span><button data-set-action="add">＋ Message</button><button data-set-action="save" class="primary">Save set</button><button data-set-action="delete" class="danger">Delete</button></div>
-      <div class="set-items">${set.messages.map((item) => `<div class="set-item" data-message-id="${item.id}"><input data-item-enabled type="checkbox" ${item.enabled ? "checked" : ""}><textarea data-item-text>${this.escape(item.text)}</textarea><button data-item-delete class="danger">×</button></div>`).join("")}</div></section>`;
+      <div class="set-items">${set.messages.map((item) => `<div class="set-item" data-message-id="${item.id}"><input data-item-enabled type="checkbox" ${item.enabled ? "checked" : ""}><textarea data-item-text>${this.escape(item.text)}</textarea><button data-item-delete class="danger" data-tooltip="Remove message" aria-label="Remove message">×</button></div>`).join("")}</div></section>`;
   }
 
   messageSetsGrid() {
@@ -306,9 +409,9 @@ class HaFamilyBellPanel extends HTMLElement {
   settingsPanel() {
     const s = this.data.settings;
     return `<details class="settings"><summary>Announcement settings</summary><div class="settings-grid">
-      <label>TTS service<input id="tts-service" value="${this.escape(s.tts_service)}"></label><label>Language<input id="language" value="${this.escape(s.language)}"></label>
-      <label>Intro delay<input id="intro-delay" type="number" min="0" max="60" value="${s.intro_delay}"></label><label>Queue hold<input id="queue-hold" type="number" min="0" max="120" value="${s.queue_hold_seconds}"></label>
-      <label class="wide">Intro URLs<textarea id="intro-urls">${this.escape(s.intro_urls.join("\n"))}</textarea></label><div class="settings-actions"><button id="save-settings" class="primary">Save settings</button><button id="export-json">Export JSON</button><button id="import-json">Import disabled JSON</button><input id="import-file" type="file" accept="application/json" hidden></div>
+      <label>TTS service<input id="tts-service" value="${this.escape(s.tts_service)}"></label><label>Language<input id="language" value="${this.escape(s.language)}"></label><label class="setting-toggle" title="Reuse identical weekly and routine speech generated by Home Assistant"><input id="cache-recurring-tts" type="checkbox" ${s.cache_recurring_tts ? "checked" : ""}> Cache recurring announcements</label>
+      <label>Chime-to-speech delay<input id="intro-delay" type="number" min="0" max="60" value="${s.intro_delay}"></label><label>Queue hold<input id="queue-hold" type="number" min="0" max="120" value="${s.queue_hold_seconds}"></label>
+      <label class="wide">Chime files<textarea id="intro-urls" placeholder="/local/media/chime.m4a">${this.escape(s.intro_urls.join("\n"))}</textarea><small>One media ID, path, or URL per line. One file is fixed; multiple files are chosen randomly; empty disables the chime.</small></label><div class="settings-actions"><button id="save-settings" class="primary">Save settings</button><button id="export-json">Export JSON</button><button id="import-json">Import disabled JSON</button><input id="import-file" type="file" accept="application/json" hidden></div>
     </div></details>`;
   }
 
@@ -369,21 +472,24 @@ class HaFamilyBellPanel extends HTMLElement {
   bind() {
     if (!this.data) return;
     this.bindMessageEditors();
-    this.shadowRoot.querySelector("#master")?.addEventListener("change", (event) => this.call({ type: "ha_family_bell/set_enabled", enabled: event.target.checked }));
+    this.shadowRoot.querySelector("#master")?.addEventListener("change", (event) => this.masterToggle(event.target));
     this.shadowRoot.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => { this.activeTab = button.dataset.tab; this.render(); }));
     this.shadowRoot.querySelector("#preview-active-only")?.addEventListener("change", (event) => { this.previewActiveOnly = event.target.checked; this.render(); });
     this.shadowRoot.querySelectorAll("[data-preview-owner]").forEach((button) => button.addEventListener("click", () => this.openPreviewOwner(button)));
     this.shadowRoot.querySelectorAll("[data-add]").forEach((button) => button.addEventListener("click", () => this.openBellEditor(button.dataset.add, Number(button.dataset.weekday || 0))));
-    this.shadowRoot.querySelectorAll(".bell-row button[data-action]").forEach((button) => button.addEventListener("click", () => this.bellAction(button.closest(".bell-row"), button.dataset.action)));
+    this.shadowRoot.querySelectorAll(".bell-row > .enabled [data-field=\"enabled\"]").forEach((input) => input.addEventListener("change", () => this.bellToggle(input.closest(".bell-row"), input)));
+    this.shadowRoot.querySelectorAll(".bell-row button[data-action]").forEach((button) => button.addEventListener("click", () => this.bellAction(button.closest(".bell-row"), button.dataset.action, button)));
     this.shadowRoot.querySelectorAll("[data-open-routine]").forEach((button) => button.addEventListener("click", () => { this.activeTab = "routines"; this.render(); this.shadowRoot.querySelector(`[data-routine-id="${button.dataset.openRoutine}"]`)?.scrollIntoView(); }));
     this.shadowRoot.querySelector("#morning-wizard")?.addEventListener("click", () => this.openMorningWizard());
     this.shadowRoot.querySelector("#add-routine")?.addEventListener("click", () => this.openNewRoutine());
-    this.shadowRoot.querySelectorAll("[data-routine-action]").forEach((button) => button.addEventListener("click", () => this.routineAction(button.closest(".routine-card"), button.dataset.routineAction)));
+    this.shadowRoot.querySelectorAll("[data-routine-enabled]").forEach((input) => input.addEventListener("change", () => this.routineToggle(input.closest(".routine-card"), input)));
+    this.shadowRoot.querySelectorAll(".routine-step > .enabled [data-field=\"enabled\"]").forEach((input) => input.addEventListener("change", () => this.stepToggle(input.closest(".routine-card"), input.closest(".routine-step"), input)));
+    this.shadowRoot.querySelectorAll("[data-routine-action]").forEach((button) => button.addEventListener("click", () => this.routineAction(button.closest(".routine-card"), button.dataset.routineAction, button)));
     this.shadowRoot.querySelectorAll("[data-step-action]").forEach((button) => button.addEventListener("click", () => this.stepAction(button.closest(".routine-card"), button.closest(".routine-step"), button.dataset.stepAction)));
     this.shadowRoot.querySelector("#add-message-set")?.addEventListener("click", () => this.openNewMessageSet());
-    this.shadowRoot.querySelectorAll("[data-set-action]").forEach((button) => button.addEventListener("click", () => this.messageSetAction(button.closest(".message-set-card"), button.dataset.setAction)));
+    this.shadowRoot.querySelectorAll("[data-set-action]").forEach((button) => button.addEventListener("click", () => this.messageSetAction(button.closest(".message-set-card"), button.dataset.setAction, button)));
     this.shadowRoot.querySelectorAll("[data-item-delete]").forEach((button) => button.addEventListener("click", () => button.closest(".set-item").remove()));
-    this.shadowRoot.querySelector("#save-settings")?.addEventListener("click", () => this.saveSettings());
+    this.shadowRoot.querySelector("#save-settings")?.addEventListener("click", (event) => this.saveSettings(event.currentTarget));
     this.shadowRoot.querySelector("#export-json")?.addEventListener("click", () => this.exportJson());
     this.shadowRoot.querySelector("#import-json")?.addEventListener("click", () => this.shadowRoot.querySelector("#import-file").click());
     this.shadowRoot.querySelector("#import-file")?.addEventListener("change", (event) => this.importJson(event.target.files[0]));
@@ -406,9 +512,27 @@ class HaFamilyBellPanel extends HTMLElement {
     return { ...common, type: "one_time", datetime: `${row.querySelector('[data-field="date"]').value}T${row.querySelector('[data-field="time"]').value}`, status: "pending" };
   }
 
-  async bellAction(row, action) {
+  async masterToggle(input) {
+    const label = input.closest("label");
+    const status = label?.querySelector("span");
+    const setStatus = (enabled) => { if (status) status.textContent = enabled ? "Schedule active" : "Schedule paused"; };
+    setStatus(input.checked);
+    await this.toggleWithFeedback(input, { type: "ha_family_bell/set_enabled", enabled: input.checked }, {
+      onSuccess: (enabled) => { this.data.global_enabled = enabled; setStatus(enabled); },
+      onRollback: setStatus,
+    });
+  }
+
+  async bellToggle(row, input) {
+    const bell = this.data.bells.find((item) => item.id === row.dataset.id);
+    await this.toggleWithFeedback(input, { type: "ha_family_bell/update", bell_id: row.dataset.id, changes: { enabled: input.checked } }, {
+      onSuccess: (enabled) => { if (bell) bell.enabled = enabled; },
+    });
+  }
+
+  async bellAction(row, action, button) {
     const id = row.dataset.id;
-    if (action === "save") await this.call({ type: "ha_family_bell/update", bell_id: id, changes: this.bellData(row) });
+    if (action === "save") await this.saveWithFeedback(button, { type: "ha_family_bell/update", bell_id: id, changes: this.bellData(row) });
     if (action === "test" && confirm("Play this bell now? Tests do not advance a random set.")) await this.call({ type: "ha_family_bell/test", bell_id: id });
     if (action === "delete" && confirm("Delete this bell?")) await this.call({ type: "ha_family_bell/delete", bell_id: id });
     if (action === "duplicate") {
@@ -427,9 +551,46 @@ class HaFamilyBellPanel extends HTMLElement {
     })) };
   }
 
-  async routineAction(card, action) {
+  patchRoutineState(routine, { routineEnabled = routine.enabled, stepEnabled } = {}) {
+    routine.enabled = routineEnabled;
+    if (stepEnabled !== undefined) routine.steps.forEach((step) => { step.enabled = stepEnabled; });
+    this.data.routine_occurrences.forEach((occurrence) => {
+      if (occurrence.routine_id === routine.id) occurrence.enabled = routine.enabled && (stepEnabled ?? routine.steps.find((step) => step.id === occurrence.step_id)?.enabled);
+    });
+  }
+
+  async routineToggle(card, input) {
+    const routine = this.data.routines.find((item) => item.id === card.dataset.routineId);
+    if (!routine) return;
+    const enabled = input.checked;
+    const previous = routine.steps.map((step) => step.enabled);
+    const nested = [...card.querySelectorAll('.routine-step [data-field="enabled"]')];
+    nested.forEach((checkbox) => { checkbox.checked = enabled; });
+    const changes = { enabled, steps: routine.steps.map((step) => ({ ...step, enabled })) };
+    await this.toggleWithFeedback(input, { type: "ha_family_bell/routine/update", routine_id: routine.id, changes }, {
+      onSuccess: () => this.patchRoutineState(routine, { routineEnabled: enabled, stepEnabled: enabled }),
+      onRollback: () => nested.forEach((checkbox, index) => { checkbox.checked = previous[index]; }),
+    });
+  }
+
+  async stepToggle(card, row, input) {
+    const routine = this.data.routines.find((item) => item.id === card.dataset.routineId);
+    if (!routine) return;
+    const enabled = input.checked;
+    const steps = routine.steps.map((step) => step.id === row.dataset.stepId ? { ...step, enabled } : step);
+    await this.toggleWithFeedback(input, { type: "ha_family_bell/routine/update", routine_id: routine.id, changes: { steps } }, {
+      onSuccess: () => {
+        const step = routine.steps.find((item) => item.id === row.dataset.stepId);
+        if (step) step.enabled = enabled;
+        this.data.routine_occurrences.filter((item) => item.routine_id === routine.id && item.step_id === row.dataset.stepId)
+          .forEach((item) => { item.enabled = routine.enabled && enabled; });
+      },
+    });
+  }
+
+  async routineAction(card, action, button) {
     const id = card.dataset.routineId;
-    if (action === "save") await this.call({ type: "ha_family_bell/routine/update", routine_id: id, changes: this.routineData(card) });
+    if (action === "save") await this.saveWithFeedback(button, { type: "ha_family_bell/routine/update", routine_id: id, changes: this.routineData(card) });
     if (action === "delete" && confirm("Delete this routine? Its message sets will remain.")) await this.call({ type: "ha_family_bell/routine/delete", routine_id: id });
     if (action === "add-step") this.openStepEditor(id);
     if (action === "enable-all" || action === "disable-all") {
@@ -437,8 +598,14 @@ class HaFamilyBellPanel extends HTMLElement {
       const count = card.querySelectorAll(".routine-step").length;
       const name = card.querySelector("[data-routine-name]").value.trim() || "this routine";
       if (!confirm(`${enabled ? "Enable" : "Disable"} all ${count} bells in ${name}? This saves immediately.`)) return;
-      card.querySelectorAll('.routine-step [data-field="enabled"]').forEach((checkbox) => { checkbox.checked = enabled; });
-      await this.call({ type: "ha_family_bell/routine/update", routine_id: id, changes: this.routineData(card) });
+      const routine = this.data.routines.find((item) => item.id === id);
+      const checkboxes = [...card.querySelectorAll('.routine-step [data-field="enabled"]')];
+      const previous = checkboxes.map((checkbox) => checkbox.checked);
+      checkboxes.forEach((checkbox) => { checkbox.checked = enabled; });
+      const changes = { steps: routine.steps.map((step) => ({ ...step, enabled })) };
+      const saved = await this.buttonWithFeedback(button, { type: "ha_family_bell/routine/update", routine_id: id, changes }, { successLabel: "Applied" });
+      if (saved) this.patchRoutineState(routine, { stepEnabled: enabled });
+      else checkboxes.forEach((checkbox, index) => { checkbox.checked = previous[index]; });
     }
   }
 
@@ -451,13 +618,13 @@ class HaFamilyBellPanel extends HTMLElement {
     return { name: card.querySelector("[data-set-name]").value.trim(), messages: [...card.querySelectorAll(".set-item")].map((row) => ({ id: row.dataset.messageId || undefined, enabled: row.querySelector("[data-item-enabled]").checked, text: row.querySelector("[data-item-text]").value.trim() })) };
   }
 
-  async messageSetAction(card, action) {
+  async messageSetAction(card, action, button) {
     const id = card.dataset.setId;
-    if (action === "save") await this.call({ type: "ha_family_bell/message_set/update", set_id: id, changes: this.messageSetData(card) });
+    if (action === "save") await this.saveWithFeedback(button, { type: "ha_family_bell/message_set/update", set_id: id, changes: this.messageSetData(card) }, "Saved");
     if (action === "delete" && confirm("Delete this message set? Linked sets cannot be deleted.")) await this.call({ type: "ha_family_bell/message_set/delete", set_id: id });
     if (action === "add") {
       const container = card.querySelector(".set-items");
-      container.insertAdjacentHTML("beforeend", `<div class="set-item"><input data-item-enabled type="checkbox" checked><textarea data-item-text></textarea><button data-item-delete class="danger">×</button></div>`);
+      container.insertAdjacentHTML("beforeend", `<div class="set-item"><input data-item-enabled type="checkbox" checked><textarea data-item-text></textarea><button data-item-delete class="danger" data-tooltip="Remove message" aria-label="Remove message">×</button></div>`);
       container.lastElementChild.querySelector("[data-item-delete]").addEventListener("click", (event) => event.target.closest(".set-item").remove());
     }
   }
@@ -478,7 +645,7 @@ class HaFamilyBellPanel extends HTMLElement {
   }
 
   openNewRoutine() {
-    const dialog = this.shadowRoot.querySelector("#editor"); dialog.innerHTML = `<form method="dialog"><h2>New routine</h2><label>Name<input id="routine-name" value="Morning Routine" required></label><p>New routines start enabled but have no bells. The master schedule is unchanged.</p><div class="dialog-actions"><button value="cancel">Cancel</button><button id="create-routine" class="primary">Create</button></div></form>`;
+    const dialog = this.shadowRoot.querySelector("#editor"); dialog.innerHTML = `<form method="dialog"><h2>New routine</h2><label>Name<input id="routine-name" value="Morning Routine" required></label><p>The routine will not announce anything until it contains an enabled bell and the main schedule is active.</p><div class="dialog-actions"><button value="cancel">Cancel</button><button id="create-routine" class="primary">Create</button></div></form>`;
     dialog.querySelector("#create-routine").addEventListener("click", async (event) => { event.preventDefault(); await this.call({ type: "ha_family_bell/routine/create", routine: { name: dialog.querySelector("#routine-name").value, enabled: true, steps: [] } }); dialog.close(); }); dialog.showModal();
   }
 
@@ -499,22 +666,24 @@ class HaFamilyBellPanel extends HTMLElement {
     dialog.innerHTML = `<form method="dialog"><h2>Morning Routine conversion</h2><p>Review only. Nothing changes until you preview and confirm.</p><div class="window"><label>From<input id="window-start" type="time" value="05:00"></label><label>To<input id="window-end" type="time" value="11:59"></label><label>Routine name<input id="conversion-name" value="Morning Routine"></label></div><div id="candidate-list" class="candidate-list"></div><div id="conversion-preview"></div><div class="dialog-actions"><button value="cancel">Cancel</button><button id="preview-conversion" type="button" class="primary">Preview conversion</button></div></form>`;
     const refresh = () => { const start = dialog.querySelector("#window-start").value; const end = dialog.querySelector("#window-end").value; const candidates = weekly.filter((bell) => bell.time.slice(0, 5) >= start && bell.time.slice(0, 5) <= end); dialog.querySelector("#candidate-list").innerHTML = candidates.map((bell) => `<label><input data-candidate="${bell.id}" type="checkbox" checked><span>${DAYS[bell.weekday].slice(0, 3)} ${bell.time.slice(0, 5)}</span><span>${this.escape(this.friendlyTemplate(bell.message_source.template))}</span></label>`).join("") || `<div class="empty">No bells in this window.</div>`; };
     refresh(); dialog.querySelector("#window-start").addEventListener("change", refresh); dialog.querySelector("#window-end").addEventListener("change", refresh);
-    dialog.querySelector("#preview-conversion").addEventListener("click", async () => { try { const ids = [...dialog.querySelectorAll("[data-candidate]:checked")].map((el) => el.dataset.candidate); const name = dialog.querySelector("#conversion-name").value; const preview = await this.hass.callWS({ type: "ha_family_bell/conversion/preview", bell_ids: ids, name }); const target = dialog.querySelector("#conversion-preview"); target.innerHTML = `<div class="preview"><strong>${preview.source_bell_ids.length} rows → ${preview.routine.steps.length} bells + ${preview.message_sets.length} message sets</strong>${preview.routine.steps.map((step) => `<div>${step.time.slice(0, 5)} · ${step.weekdays.map((day) => DAYS[day].slice(0, 3)).join(", ")} · ${this.escape(step.name)}</div>`).join("")}<button id="commit-conversion" type="button" class="danger-fill">Replace selected rows</button></div>`; target.querySelector("#commit-conversion").addEventListener("click", async () => { if (!confirm(`Replace ${ids.length} selected weekly rows with this routine? The master switch and legacy automations will not change.`)) return; await this.call({ type: "ha_family_bell/conversion/commit", bell_ids: ids, name }); dialog.close(); this.activeTab = "routines"; this.render(); }); } catch (err) { this.showError(err); } });
+    dialog.querySelector("#preview-conversion").addEventListener("click", async () => { try { const ids = [...dialog.querySelectorAll("[data-candidate]:checked")].map((el) => el.dataset.candidate); const name = dialog.querySelector("#conversion-name").value; const preview = await this.hass.callWS({ type: "ha_family_bell/conversion/preview", bell_ids: ids, name }); const target = dialog.querySelector("#conversion-preview"); target.innerHTML = `<div class="preview"><strong>${preview.source_bell_ids.length} rows → ${preview.routine.steps.length} bells + ${preview.message_sets.length} message sets</strong>${preview.routine.steps.map((step) => `<div>${step.time.slice(0, 5)} · ${step.weekdays.map((day) => DAYS[day].slice(0, 3)).join(", ")} · ${this.escape(step.name)}</div>`).join("")}<button id="commit-conversion" type="button" class="danger-fill">Replace selected rows</button></div>`; target.querySelector("#commit-conversion").addEventListener("click", async () => { if (!confirm(`Replace ${ids.length} selected weekly rows with this routine? This does not enable, disable, or remove Home Assistant automations.`)) return; await this.call({ type: "ha_family_bell/conversion/commit", bell_ids: ids, name }); dialog.close(); this.activeTab = "routines"; this.render(); }); } catch (err) { this.showError(err); } });
     dialog.showModal();
   }
 
-  async saveSettings() { const root = this.shadowRoot; await this.call({ type: "ha_family_bell/settings", changes: { tts_service: root.querySelector("#tts-service").value.trim(), language: root.querySelector("#language").value.trim(), intro_delay: Number(root.querySelector("#intro-delay").value), queue_hold_seconds: Number(root.querySelector("#queue-hold").value), intro_urls: root.querySelector("#intro-urls").value.split("\n").map((v) => v.trim()).filter(Boolean) } }); }
+  async saveSettings(button) { const root = this.shadowRoot; await this.saveWithFeedback(button, { type: "ha_family_bell/settings", changes: { tts_service: root.querySelector("#tts-service").value.trim(), language: root.querySelector("#language").value.trim(), cache_recurring_tts: root.querySelector("#cache-recurring-tts").checked, intro_delay: Number(root.querySelector("#intro-delay").value), queue_hold_seconds: Number(root.querySelector("#queue-hold").value), intro_urls: root.querySelector("#intro-urls").value.split("\n").map((v) => v.trim()).filter(Boolean) } }); }
   exportJson() { const payload = JSON.stringify({ version: 2, timezone: this.data.timezone, bells: this.data.bells, routines: this.data.routines, message_sets: this.data.message_sets }, null, 2); const url = URL.createObjectURL(new Blob([payload], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = `ha-family-bell-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url); }
   async importJson(file) { if (!file) return; try { const payload = JSON.parse(await file.text()); if (!Array.isArray(payload.bells)) throw new Error("Import file must contain a bells array."); if (confirm(`Import ${payload.bells.length} bells? Every imported row will be disabled.`)) await this.call({ type: "ha_family_bell/import", bells: payload.bells }); } catch (err) { this.showError(err); } }
 
   styles() { return `
     :host { color: var(--primary-text-color); font-family: var(--paper-font-body1_-_font-family, sans-serif); } * { box-sizing: border-box; }
     .page { max-width: 1700px; margin: 0 auto; padding:16px 18px; } header,.toolbar,.routine-heading,.set-heading { display:flex; justify-content:space-between; gap:10px; align-items:center; } h1,h2 { margin:0; } h1 { font-size:27px; } header p,.toolbar p { margin:3px 0 0; color:var(--secondary-text-color); }
-    button,input,select,textarea,summary { font:inherit; } button { border:1px solid var(--divider-color); border-radius:7px; padding:7px 9px; background:var(--card-background-color); color:var(--primary-text-color); cursor:pointer; } button.primary,.danger-fill { color:var(--text-primary-color); background:var(--primary-color); border-color:var(--primary-color); } button.danger,.danger-fill { color:var(--error-color); } .danger-fill { margin-top:10px; border-color:var(--error-color); background:transparent; }
+    button,input,select,textarea,summary { font:inherit; } button { border:1px solid var(--divider-color); border-radius:7px; padding:7px 9px; background:var(--card-background-color); color:var(--primary-text-color); cursor:pointer; transition:opacity .15s,background-color .15s,color .15s; } button:disabled { cursor:wait; opacity:.78; } button.primary,.danger-fill { color:var(--text-primary-color); background:var(--primary-color); border-color:var(--primary-color); } button.danger,.danger-fill { color:var(--error-color); } .danger-fill { margin-top:10px; border-color:var(--error-color); background:transparent; }
+    button.is-saving::before { content:""; display:inline-block; width:12px; height:12px; margin-right:6px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:-2px; animation:bell-spin .7s linear infinite; } button.is-saved { color:var(--success-color); border-color:var(--success-color); background:color-mix(in srgb,var(--success-color) 10%,var(--card-background-color)); }
+    button[data-tooltip] { position:relative; } button[data-tooltip]::after { content:attr(data-tooltip); position:absolute; left:50%; bottom:calc(100% + 7px); z-index:30; padding:5px 7px; border-radius:6px; color:var(--card-background-color,#fff); background:var(--primary-text-color,#222); box-shadow:0 3px 10px #0004; font-size:11px; font-weight:400; line-height:1; white-space:nowrap; pointer-events:none; opacity:0; transform:translate(-50%,3px); transition:opacity .15s,transform .15s; } button[data-tooltip]:hover::after,button[data-tooltip]:focus-visible::after { opacity:1; transform:translate(-50%,0); }
     input,select,textarea { min-width:0; border:1px solid var(--divider-color); border-radius:7px; padding:8px; color:var(--primary-text-color); background:var(--card-background-color); } textarea { min-height:54px; resize:vertical; }
-    .master { display:flex; align-items:center; gap:8px; padding:10px 13px; border-radius:10px; background:var(--card-background-color); box-shadow:var(--ha-card-box-shadow); font-weight:600; } .master input,.enabled input { width:19px; height:19px; accent-color:var(--primary-color); }
+    .master { display:flex; align-items:center; gap:8px; padding:10px 13px; border-radius:10px; background:var(--card-background-color); box-shadow:var(--ha-card-box-shadow); font-weight:600; } .master input,.enabled input { width:19px; height:19px; accent-color:var(--primary-color); } label.toggle-busy > input[aria-busy="true"] { display:none; } label.toggle-busy::before { content:""; display:inline-block; width:15px; height:15px; flex:0 0 15px; border:2px solid var(--primary-color); border-right-color:transparent; border-radius:50%; vertical-align:-3px; animation:bell-spin .7s linear infinite; }
     nav { display:flex; gap:5px; margin:10px 0; border-bottom:1px solid var(--divider-color); overflow:auto; } nav button { border:0; border-radius:0; background:none; padding:10px 14px; white-space:nowrap; } nav button.active { color:var(--primary-color); border-bottom:3px solid var(--primary-color); font-weight:600; }
-    .settings,.day-group,.routine-card,.message-set-card,.card { background:var(--card-background-color); border-radius:10px; margin-bottom:12px; box-shadow:var(--ha-card-box-shadow); } .settings { padding:11px 13px; } .settings-grid { display:grid; grid-template-columns:repeat(4,minmax(140px,1fr)); gap:10px; margin-top:12px; } .settings-grid label,dialog form>label { display:flex; flex-direction:column; gap:5px; color:var(--secondary-text-color); } .settings-grid .wide,.settings-actions { grid-column:1/-1; } .settings-actions,.actions,.dialog-actions { display:flex; gap:5px; flex-wrap:nowrap; justify-content:flex-end; }
+    .settings,.day-group,.routine-card,.message-set-card,.card { background:var(--card-background-color); border-radius:10px; margin-bottom:12px; box-shadow:var(--ha-card-box-shadow); } .settings { padding:11px 13px; } .settings-grid { display:grid; grid-template-columns:repeat(4,minmax(140px,1fr)); gap:10px; margin-top:12px; } .settings-grid label,dialog form>label { display:flex; flex-direction:column; gap:5px; color:var(--secondary-text-color); } .settings-grid label small { color:var(--secondary-text-color); font-size:11px; } .settings-grid .setting-toggle { flex-direction:row; align-items:center; align-self:end; min-height:36px; } .setting-toggle input { width:18px; height:18px; accent-color:var(--primary-color); } .settings-grid .wide,.settings-actions { grid-column:1/-1; } .settings-actions,.actions,.dialog-actions { display:flex; gap:5px; flex-wrap:nowrap; justify-content:flex-end; }
     .toolbar { margin:12px 0; } .day-heading,.routine-heading,.set-heading { padding:9px 12px; border-bottom:1px solid var(--divider-color); } .day-heading { display:flex; align-items:center; justify-content:space-between; } .day-heading h2 { font-size:18px; } .grid-header,.bell-row { display:grid; grid-template-columns:36px 70px 112px minmax(300px,2fr) minmax(145px,1fr) minmax(225px,auto); gap:7px; align-items:center; padding:6px 10px; } .grid-header.one-time,.bell-row.one-time { grid-template-columns:36px 125px 112px minmax(300px,2fr) minmax(145px,1fr) 70px minmax(190px,auto); } .grid-header,.routine-header { color:var(--secondary-text-color); font-size:11px; text-transform:uppercase; background:var(--secondary-background-color); } .bell-row { border-top:1px solid var(--divider-color); }
     .message-editor { display:grid; grid-template-columns:92px minmax(150px,1fr); gap:4px; } .message-editor [data-field="message-set"],.placeholder-tools { grid-column:1/-1; } .placeholder-tools { display:flex; align-items:center; gap:4px; flex-wrap:nowrap; color:var(--secondary-text-color); font-size:10px; } .placeholder-tools button { padding:2px 6px; font-size:10px; } .placeholder-tools small { flex-basis:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .bell-row [data-message-preview],.routine-step [data-message-preview] { display:none; } .routine-step .message-editor { grid-template-columns:90px 200px minmax(160px,1fr); } .routine-step .message-editor [data-field="message-kind"] { grid-column:1; grid-row:1; } .routine-step .message-editor [data-field="message-set"] { grid-column:2; grid-row:1; } .routine-step .message-editor [data-field="message-template"] { grid-column:3; grid-row:1; } .routine-step .message-editor:has([data-field="message-set"][hidden]) [data-field="message-template"] { grid-column:2/4; } .routine-step .placeholder-tools { grid-column:1/-1; } [hidden] { display:none!important; }
     .speaker-picker,.day-picker { position:relative; } .speaker-picker summary,.day-picker summary { border:1px solid var(--divider-color); border-radius:7px; padding:9px; cursor:pointer; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; } .speaker-options,.day-picker>div { position:absolute; z-index:10; min-width:250px; max-height:270px; overflow:auto; background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:9px; box-shadow:var(--ha-card-box-shadow); padding:7px; } .speaker-options label,.day-picker label { display:flex; gap:8px; padding:6px; }
@@ -526,6 +695,7 @@ class HaFamilyBellPanel extends HTMLElement {
     .set-items { padding:8px 10px; display:grid; gap:5px; } .set-item { display:grid; grid-template-columns:28px 1fr 36px; gap:6px; align-items:center; } .set-item textarea { min-height:38px; height:38px; padding:8px; } .set-item button { padding:6px; }
     .status { font-size:11px; text-align:center; } .status.completed { color:var(--success-color); } .status.missed,.error { color:var(--error-color); } .empty,.loading { padding:20px; text-align:center; color:var(--secondary-text-color); } .error { padding:10px; border-radius:8px; background:color-mix(in srgb,var(--error-color) 12%,transparent); }
     dialog { width:min(760px,calc(100vw - 32px)); max-height:90vh; overflow:auto; border:0; border-radius:14px; padding:22px; color:var(--primary-text-color); background:var(--card-background-color); box-shadow:0 12px 45px #0007; } dialog::backdrop { background:#0008; } dialog form { display:grid; gap:14px; } .day-checks { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; } .day-checks label { display:flex; gap:7px; align-items:center; } .window { display:grid; grid-template-columns:1fr 1fr 2fr; gap:8px; } .window label { display:grid; gap:5px; } .candidate-list { max-height:300px; overflow:auto; border:1px solid var(--divider-color); border-radius:8px; } .candidate-list label { display:grid; grid-template-columns:28px 90px 1fr; gap:7px; padding:7px; border-top:1px solid var(--divider-color); } .preview { padding:12px; border-radius:8px; background:var(--secondary-background-color); }
+    @keyframes bell-spin { to { transform:rotate(360deg); } }
     @media(max-width:950px){ .page{padding:10px} header,.toolbar{align-items:flex-start;flex-direction:column}.settings-grid{grid-template-columns:1fr}.grid-header,.routine-header,.preview-legend{display:none}.bell-row,.bell-row.one-time,.routine-step{grid-template-columns:36px 1fr 1fr}.message-editor,.speaker-picker,.actions,.status,.day-picker{grid-column:1/-1}.routine-step .message-editor{grid-template-columns:1fr}.routine-step .message-editor [data-field="message-kind"],.routine-step .message-editor [data-field="message-set"],.routine-step .message-editor [data-field="message-template"]{grid-column:1;grid-row:auto}.actions{flex-wrap:wrap}.routine-heading,.set-heading{flex-wrap:wrap}.window{grid-template-columns:1fr}.candidate-list label{grid-template-columns:28px 80px 1fr}.preview-row,.one-time-preview .preview-row{grid-template-columns:60px 82px 1fr;gap:6px}.preview-message,.preview-speakers{grid-column:1/-1;white-space:normal}.preview-state{grid-column:1}.preview-tools{grid-column:2/-1;justify-content:flex-end} }
   `; }
 }

@@ -22,8 +22,24 @@ next_occurrence = schedule.next_occurrence
 normalize_bell = schedule.normalize_bell
 normalize_message_set = schedule.normalize_message_set
 normalize_routine = schedule.normalize_routine
+should_cache_tts = schedule.should_cache_tts
 
 TZ = ZoneInfo("Asia/Seoul")
+
+
+@pytest.mark.parametrize("target_type", ["weekly", "routine"])
+def test_recurring_tts_uses_cache(target_type: str) -> None:
+    assert should_cache_tts(target_type, test=False, recurring_cache=True)
+
+
+@pytest.mark.parametrize("target_type", ["one_time", "weekly", "routine"])
+def test_tts_cache_is_disabled_for_one_time_tests_and_setting(target_type: str) -> None:
+    assert not should_cache_tts(target_type, test=True, recurring_cache=True)
+    assert not should_cache_tts(target_type, test=False, recurring_cache=False)
+
+
+def test_one_time_tts_never_uses_cache() -> None:
+    assert not should_cache_tts("one_time", test=False, recurring_cache=True)
 
 
 def test_weekly_next_occurrence_later_same_day() -> None:

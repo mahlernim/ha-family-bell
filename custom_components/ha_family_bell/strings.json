@@ -5,7 +5,7 @@
     },
     "step": {
       "user": {
-        "description": "Create a locally managed weekly and one-time bell schedule. The master switch starts off to prevent accidental announcements.",
+        "description": "Manage weekly announcements, reusable routines, message sets, and one-time events from one panel. The main schedule starts disabled to prevent accidental playback.",
         "title": "Set up HA Family Bell"
       }
     }
