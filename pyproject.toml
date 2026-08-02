@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ha-family-bell"
-version = "0.1.0"
-description = "Grid-based weekly and one-time family bell scheduler for Home Assistant"
+version = "0.2.0"
+description = "Routine, weekly, and one-time family bell scheduler for Home Assistant"
 readme = "README.md"
 requires-python = ">=3.14"
 license = { text = "MIT" }

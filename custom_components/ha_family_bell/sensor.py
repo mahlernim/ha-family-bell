@@ -38,9 +38,14 @@ class FamilyBellNextSensor(FamilyBellEntity, SensorEntity):
         if not next_item:
             return {}
         bell = next_item["bell"]
+        source = bell["message_source"]
         return {
             "bell_id": bell["id"],
-            "message": bell["message"],
+            "message_template": source["template"],
+            "message_set_id": source.get("set_id"),
             "speakers": bell["speakers"],
             "type": bell["type"],
+            "routine_id": bell.get("routine_id"),
+            "routine_name": bell.get("routine_name"),
+            "step_id": bell.get("step_id"),
         }

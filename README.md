@@ -1,13 +1,18 @@
 # HA Family Bell
 
-HA Family Bell is a HACS-installable Home Assistant custom integration for managing announcements as one weekly grid instead of many separate automations.
+HA Family Bell is a HACS-installable Home Assistant custom integration for managing weekly announcements, reusable routines, random-message sets, and single-time events in one place.
 
-Every row is an independent bell. Editing a Monday row does **not** silently change a copied Tuesday row. “Copy to days” creates independent records that can be edited or deleted separately.
+Standalone weekly rows remain independent. Routine steps can cover several weekdays, and linked message sets intentionally propagate edits to every bell or routine step that uses them.
 
 ## What it provides
 
-- Sidebar panel grouped Monday through Sunday
+- Sidebar panel with Weekly Schedule, Routines, Single-time Events, and Message Sets tabs
 - One row per bell: active, day/date, time, message, speakers, and actions
+- Named routines with exact-time steps and weekday selection per step
+- Reusable random-message sets with enabled variants and persisted shuffle-without-repeats
+- Direct Jinja templates or linked message sets for every bell type
+- Read-only routine occurrences in the weekly overview
+- Guided morning conversion that previews grouped steps and extracted literal random lists before committing
 - Single-time events with pending, completed, and missed states
 - Add, edit, test, duplicate, copy to days, move to another day, and delete
 - Integration-owned `.storage` data; no generated automation YAML
@@ -16,11 +21,13 @@ Every row is an independent bell. Editing a Monday row does **not** silently cha
 - Speaker-aware queuing: bells sharing a speaker wait; disjoint speaker sets can run in parallel
 - JSON export and safe import (all imported rows are forced disabled)
 - Optional intro sound and configurable TTS service/language
-- Home Assistant templates in message fields, including `now()` and random choices
+- Home Assistant templates in direct messages, set variants, and linked wrappers
 
 ## Safety behavior
 
-The master schedule switch starts **off**. Newly added, duplicated, and imported rows also start off. This prevents duplicate announcements while an existing automation schedule is still active.
+The master schedule switch starts **off**. Newly added bells and routine steps also start off. The v1-to-v2 upgrade preserves the master, row, and one-time-event states and does not modify legacy Home Assistant automations.
+
+The conversion wizard performs a read-only preview first. Its commit replaces only the explicitly selected weekly rows and leaves the master switch unchanged.
 
 At restart, expired single-time events within the configured grace period are run; older events become `missed`. Weekly bells that passed while Home Assistant was offline wait until their next weekly occurrence.
 
@@ -60,12 +67,33 @@ Weekly bell:
   "weekday": 0,
   "time": "08:05:00",
   "enabled": true,
-  "message": "Good morning. It is {{ now().strftime('%H:%M') }}.",
+  "message_source": {
+    "kind": "template",
+    "template": "Good morning. It is {{ now().strftime('%H:%M') }}."
+  },
   "speakers": ["media_player.bedroom"]
 }
 ```
 
-`weekday` uses Monday `0` through Sunday `6`. A one-time bell uses `type: "one_time"` and an ISO `datetime` instead.
+`weekday` uses Monday `0` through Sunday `6`. A one-time bell uses `type: "one_time"` and an ISO `datetime` instead. Existing v1 `message` strings migrate losslessly to direct template sources.
+
+A linked source uses a stable message-set ID and a wrapper containing `random_message`:
+
+```json
+{
+  "kind": "message_set",
+  "set_id": "set-uuid",
+  "template": "It is {{ now().strftime('%H:%M') }}. {{ random_message }}"
+}
+```
+
+The chosen set variant is rendered as a Home Assistant template first, then supplied to the wrapper as `random_message`. Manual tests do not advance the persisted shuffle bag.
+
+## Morning Routine conversion
+
+From **Weekly Schedule**, select **Create Morning Routine**. The default 05:00–11:59 window identifies candidates, while checkboxes let you exclude individual rows. Preview groups equivalent time/message/speaker rows and merges their weekdays. A single literal Jinja expression such as `{{ ['First', 'Second'] | random }}` becomes a linked set; complex expressions stay as direct templates.
+
+The final replacement requires a separate confirmation. Keep legacy automations active while the new schedule remains paused, test representative routine steps, and perform the automation cutover separately.
 
 ## Migration workflow
 

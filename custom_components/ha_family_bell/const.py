@@ -12,7 +12,7 @@ PANEL_WEB_COMPONENT: Final = "ha-family-bell-panel"
 STATIC_URL: Final = "/ha_family_bell/frontend"
 
 STORE_KEY: Final = "ha_family_bell.schedule"
-STORE_VERSION: Final = 1
+STORE_VERSION: Final = 2
 
 EVENT_UPDATED: Final = "ha_family_bell_updated"
 EVENT_FIRED: Final = "ha_family_bell_fired"

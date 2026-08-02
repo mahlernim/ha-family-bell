@@ -14,8 +14,13 @@ schedule = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(schedule)
 
 BellValidationError = schedule.BellValidationError
+advance_shuffle = schedule.advance_shuffle
+build_conversion_preview = schedule.build_conversion_preview
+extract_random_template = schedule.extract_random_template
 next_occurrence = schedule.next_occurrence
 normalize_bell = schedule.normalize_bell
+normalize_message_set = schedule.normalize_message_set
+normalize_routine = schedule.normalize_routine
 
 TZ = ZoneInfo("Asia/Seoul")
 
@@ -72,3 +77,126 @@ def test_rejects_missing_speaker() -> None:
             {"type": "weekly", "weekday": 1, "time": "09:00", "message": "Hello", "speakers": []},
             TZ,
         )
+
+
+def test_v1_message_becomes_direct_template_source() -> None:
+    bell = normalize_bell(
+        {
+            "id": "legacy",
+            "type": "weekly",
+            "weekday": 1,
+            "time": "09:00",
+            "message": "It is {{ now().hour }}",
+            "speakers": ["media_player.kitchen"],
+        },
+        TZ,
+    )
+    assert bell["id"] == "legacy"
+    assert bell["message_source"] == {
+        "kind": "template",
+        "template": "It is {{ now().hour }}",
+    }
+    assert "message" not in bell
+
+
+def test_routine_normalizes_exact_time_and_days() -> None:
+    routine = normalize_routine(
+        {
+            "name": "Morning Routine",
+            "steps": [
+                {
+                    "name": "Wake up",
+                    "time": "07:05",
+                    "weekdays": [4, 0, 4, 2],
+                    "message_source": {
+                        "kind": "message_set",
+                        "set_id": "wake-up",
+                        "template": "It is morning. {{ random_message }}",
+                    },
+                    "speakers": ["media_player.bedroom"],
+                }
+            ],
+        }
+    )
+    assert routine["steps"][0]["time"] == "07:05:00"
+    assert routine["steps"][0]["weekdays"] == [0, 2, 4]
+
+
+def test_message_set_requires_enabled_message() -> None:
+    with pytest.raises(BellValidationError, match="enabled"):
+        normalize_message_set({"name": "Muted", "messages": [{"text": "Hello", "enabled": False}]})
+
+
+def test_extracts_only_one_literal_random_expression() -> None:
+    extracted = extract_random_template(
+        "It is {{ now().strftime('%H:%M') }}. {{ ['Up', 'Time to move'] | random }}"
+    )
+    assert extracted == (
+        "It is {{ now().strftime('%H:%M') }}. {{ random_message }}",
+        ["Up", "Time to move"],
+    )
+    assert extract_random_template("{{ states('sensor.phrases') | random }}") is None
+
+
+def test_conversion_groups_weekdays_and_builds_linked_set() -> None:
+    template = "Good morning. {{ ['Wake up', 'Rise and shine'] | random }}"
+    bells = [
+        normalize_bell(
+            {
+                "id": f"bell-{weekday}",
+                "type": "weekly",
+                "weekday": weekday,
+                "time": "08:05",
+                "enabled": False,
+                "message": template,
+                "speakers": ["media_player.bedroom"],
+            },
+            TZ,
+        )
+        for weekday in range(7)
+    ]
+    preview = build_conversion_preview(bells, [bell["id"] for bell in bells], "Morning")
+    assert len(preview["routine"]["steps"]) == 1
+    assert preview["routine"]["steps"][0]["weekdays"] == list(range(7))
+    assert preview["routine"]["steps"][0]["enabled"] is False
+    assert preview["routine"]["steps"][0]["message_source"] == {
+        "kind": "message_set",
+        "set_key": "set-1",
+        "template": "Good morning. {{ random_message }}",
+    }
+    assert [item["text"] for item in preview["message_sets"][0]["messages"]] == [
+        "Wake up",
+        "Rise and shine",
+    ]
+
+
+def test_shuffle_uses_every_item_and_avoids_cycle_boundary_repeat() -> None:
+    state = {"remaining": [], "last": None}
+
+    def unchanged(_items: list[str]) -> None:
+        pass
+
+    first_cycle = [advance_shuffle(["a", "b", "c"], state, unchanged) for _ in range(3)]
+    first_next_cycle = advance_shuffle(["a", "b", "c"], state, unchanged)
+    assert first_cycle == ["a", "b", "c"]
+    assert first_next_cycle == "a"
+
+    boundary_state = {"remaining": [], "last": "a"}
+    boundary_selection = advance_shuffle(["a", "b", "c"], boundary_state, unchanged)
+    assert boundary_selection == "b"
+    assert boundary_state == {"remaining": ["a", "c"], "last": "b"}
+
+
+def test_shuffle_prunes_disabled_items_from_persisted_bag() -> None:
+    state = {"remaining": ["disabled", "active"], "last": "old"}
+    selected = advance_shuffle(["active"], state, lambda _items: None)
+    assert selected == "active"
+    assert state == {"remaining": [], "last": "active"}
+
+
+def test_websocket_record_keys_do_not_reuse_protocol_id() -> None:
+    websocket_source = MODULE_PATH.parent.joinpath("websocket.py").read_text(encoding="utf-8")
+    assert 'vol.Required("id"): str' not in websocket_source
+    assert 'vol.Required("bell_id"): str' in websocket_source
+    assert 'vol.Required("routine_id"): str' in websocket_source
+    assert 'vol.Required("set_id"): str' in websocket_source
