@@ -20,3 +20,9 @@ def test_week_preview_shows_message_without_message_set_name() -> None:
         '<div class="preview-legend"><span>Time</span><span>Source</span><span>Message / set</span>'
     ) not in PANEL_SOURCE
     assert "return `Set: ${name}${extra}`;" not in PANEL_SOURCE
+
+
+def test_header_omits_decorative_subtitle() -> None:
+    """The main header should reserve space for controls, not marketing copy."""
+    assert "routines · reusable messages · exact scheduling" not in PANEL_SOURCE
+    assert '<header><h1>HA Family Bell</h1><label class="master">' in PANEL_SOURCE
