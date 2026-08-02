@@ -88,6 +88,45 @@ def test_one_time_keeps_explicit_local_time() -> None:
     )
 
 
+def test_existing_seconds_are_normalized_to_minute_precision() -> None:
+    weekly = normalize_bell(
+        {
+            "type": "weekly",
+            "weekday": 0,
+            "time": "08:05:47",
+            "message": "Good morning",
+            "speakers": ["media_player.bedroom"],
+        },
+        TZ,
+    )
+    one_time = normalize_bell(
+        {
+            "type": "one_time",
+            "datetime": "2026-08-04T17:30:59.123456+09:00",
+            "message": "Appointment",
+            "speakers": ["media_player.kitchen"],
+        },
+        TZ,
+    )
+    routine = normalize_routine(
+        {
+            "name": "Evening",
+            "steps": [
+                {
+                    "time": "23:00:05",
+                    "weekdays": [0],
+                    "message": "Bedtime",
+                    "speakers": ["media_player.bedroom"],
+                }
+            ],
+        }
+    )
+
+    assert weekly["time"] == "08:05:00"
+    assert one_time["datetime"] == "2026-08-04T17:30:00+09:00"
+    assert routine["steps"][0]["time"] == "23:00:00"
+
+
 def test_rejects_missing_speaker() -> None:
     with pytest.raises(BellValidationError, match="speaker"):
         normalize_bell(

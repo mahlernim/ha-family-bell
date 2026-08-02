@@ -49,7 +49,9 @@ def _parse_time(value: str) -> time:
         parsed = time.fromisoformat(value)
     except (TypeError, ValueError) as err:
         raise BellValidationError("time must be HH:MM or HH:MM:SS") from err
-    return parsed.replace(microsecond=0)
+    # Bell schedules intentionally use minute precision. Continue accepting
+    # older/API values with seconds, but normalize them before persistence.
+    return parsed.replace(second=0, microsecond=0)
 
 
 def _parse_datetime(value: str, tz: ZoneInfo) -> datetime:
@@ -59,7 +61,7 @@ def _parse_datetime(value: str, tz: ZoneInfo) -> datetime:
         raise BellValidationError("datetime must be an ISO date and time") from err
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=tz)
-    return parsed
+    return parsed.replace(second=0, microsecond=0)
 
 
 def _normalize_speakers(value: Any) -> list[str]:

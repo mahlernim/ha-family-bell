@@ -1,137 +1,114 @@
-# HA Family Bell
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="custom_components/ha_family_bell/brand/dark_logo@2x.png">
+    <img src="custom_components/ha_family_bell/brand/logo@2x.png" alt="HA Family Bell" width="620">
+  </picture>
+</p>
 
-HA Family Bell is a Home Assistant custom integration for scheduling spoken
-announcements. It brings weekly bells, reusable routines, one-time events,
-message variation, chimes, and speaker selection into a single panel.
+<p align="center">
+  A single Home Assistant panel for weekly announcements, reusable routines, and one-time reminders.
+</p>
 
-> **Project status:** Beta. The integration is available through a HACS custom
-> repository and is not currently included in the default HACS catalog.
+<p align="center">
+  <a href="https://github.com/mahlernim/ha-family-bell/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/mahlernim/ha-family-bell"></a>
+  <img alt="Home Assistant 2026.7 or newer" src="https://img.shields.io/badge/Home%20Assistant-2026.7%2B-18BCF2?logo=home-assistant&logoColor=white">
+  <img alt="HACS custom repository" src="https://img.shields.io/badge/HACS-Custom-41BDF5?logo=home-assistant-community-store&logoColor=white">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/mahlernim/ha-family-bell"></a>
+</p>
 
-## Highlights
+<p align="center">
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=mahlernim&repository=ha-family-bell&category=integration">
+    <img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open this repository in HACS">
+  </a>
+</p>
 
-- Compact week preview combining weekly bells and routine occurrences
-- Weekly announcements with exact local times and speaker selection
-- Reusable routines with independent times, weekdays, messages, and speakers
-- One-time announcements with pending, completed, and missed states
-- Message sets that rotate enabled variants without repeating until every
-  variant has been used
-- Direct Home Assistant templates or linked message sets for every bell type
-- Friendly `%time%` and `%randomset%` placeholders for common messages
-- Optional fixed or randomly selected chime files
-- Optional Home Assistant TTS caching for recurring announcements
-- Speaker-aware queuing to reduce overlapping playback
-- Master schedule switch and `sensor.ha_family_bell_next_bell`
-- JSON export and safety-focused import
+![HA Family Bell week preview](docs/images/panel-preview.png)
 
-## Documentation
+HA Family Bell organizes spoken announcements without requiring a separate
+Home Assistant automation for every bell. Build a simple weekly schedule,
+group related bells into routines, reuse rotating messages, and review the
+entire week from one compact preview.
 
-- [User guide](docs/user-guide.md) — installation, setup, everyday use, and
-  troubleshooting
-- [Report a problem](https://github.com/mahlernim/ha-family-bell/issues)
+## Features
+
+- Weekly bells with minute-based scheduling and per-bell speaker selection
+- Reusable routines controlled by one switch or by individual bells
+- One-time events for date-specific announcements
+- Message sets that rotate enabled messages without repeating a message until
+  the current cycle is complete
+- Readable `%time%` and `%randomset%` placeholders, with advanced Jinja
+  templates still supported
+- Optional chime files and recurring TTS caching
+- Compact week preview with source colors and conflict warnings
+- Master schedule switch, next-bell sensor, speaker-aware queuing, and safe JSON
+  export/import
 
 ## Installation
 
-### HACS custom repository
+### HACS
 
-1. In HACS, open **Integrations** and add this repository as a custom
-   repository with the **Integration** category.
-2. Install **HA Family Bell** and restart Home Assistant.
-3. Go to **Settings → Devices & services → Add integration**.
-4. Search for **HA Family Bell** and complete the setup.
-5. Open **HA Family Bell** from the sidebar.
+1. Select the **Open this repository in HACS** button above, or add this
+   repository to HACS as a custom **Integration** repository.
+2. Download **HA Family Bell**.
+3. Restart Home Assistant.
+4. Go to **Settings → Devices & services → Add integration**.
+5. Search for **HA Family Bell** and complete the setup.
 
-For first-time configuration and examples, continue with the
-[user guide](docs/user-guide.md).
+HA Family Bell requires Home Assistant 2026.7 or newer.
 
 ### Manual installation
 
-Copy `custom_components/ha_family_bell` to the `custom_components` directory in
-your Home Assistant configuration, restart Home Assistant, and add the
+Copy `custom_components/ha_family_bell` into the `custom_components` directory
+in your Home Assistant configuration, restart Home Assistant, and add the
 integration from **Settings → Devices & services**.
 
-## How scheduling works
+## Quick start
 
-The panel separates scheduling into four areas:
+1. Open **HA Family Bell** from the Home Assistant sidebar.
+2. Expand **Announcement settings** and confirm the TTS service and language.
+3. Add a weekly bell or routine bell, choose at least one speaker, and save it.
+4. Use the play button to confirm the announcement sounds correct.
+5. Enable the bell and turn on **Schedule active** when the schedule is ready.
 
-- **Weekly Schedule** contains independent recurring announcements.
-- **Routines** group related recurring announcements under one switch.
-- **Single-time Events** contain announcements that run once at a specific
-  date and time.
-- **Message Sets** contain reusable message variants shared by linked bells.
+New bells and imported bells start disabled so they can be reviewed before
+they announce.
 
-**Week Preview** is a read-only overview. It expands routines into their weekly
-occurrences without creating duplicate schedule records. Source colors and Edit
-buttons identify where each announcement is managed.
+## How the schedule is organized
 
-Three levels can control a routine announcement: the main schedule switch, the
-routine switch, and the individual bell switch. All three must be enabled for
-the announcement to run. Changing the routine switch also applies the same
-enabled state to every bell inside that routine.
+- **Week Preview** combines weekly bells, routine occurrences, and upcoming
+  one-time events in a read-only overview.
+- **Weekly Schedule** contains independent bells that repeat on one weekday.
+- **Routines** group related recurring bells under a shared switch.
+- **Single-time Events** run once on a selected date and time.
+- **Message Sets** keep reusable message variations in one place. Editing a set
+  updates every bell linked to it.
 
-## Message placeholders
+All times use the Home Assistant time zone and minute precision. If an older
+schedule contains seconds, HA Family Bell safely normalizes them to the start
+of that minute.
 
-The editor provides two readable placeholders for common Home Assistant
-templates:
+## Messages and chimes
 
-- `%time%` inserts the current Home Assistant local time as `HH:MM`.
-- `%randomset%` inserts the next enabled variant from the linked message set.
-
-For example:
+Use `%time%` to insert the current local time and `%randomset%` to insert the
+next enabled message from a linked set:
 
 ```text
 Good morning. It is %time%. %randomset%
 ```
 
-Advanced Home Assistant Jinja templates remain supported. Common Jinja values
-are displayed as friendly placeholders in the editor when possible.
+Announcement settings also accept one chime path, media ID, or URL per line.
+One entry is used consistently; multiple entries are selected at random; an
+empty list disables the chime.
 
-## Announcement settings
+## Documentation and support
 
-- **TTS service** defaults to `tts.google_translate_say`. The selected service
-  must accept the legacy `entity_id`, `message`, `language`, and `cache` service
-  data used by the integration.
-- **Language** defaults to `en-gb`.
-- **Cache recurring announcements** asks Home Assistant to reuse generated
-  speech for scheduled weekly and routine announcements. One-time events and
-  manual tests bypass the cache.
-- **Chime files** accepts one media ID, local path, or URL per line. One entry
-  is used for every announcement; multiple entries are selected randomly; an
-  empty list disables the chime.
-- **Chime-to-speech delay** controls the pause between chime playback and TTS.
-- **Queue hold** adds a minimum speaker lock after an announcement is sent.
+- [User guide](docs/user-guide.md) — complete setup, usage, backup, and
+  troubleshooting instructions
+- [Report a problem](https://github.com/mahlernim/ha-family-bell/issues)
 
-## Safety and recovery behavior
+When reporting a problem, remove private entity names, message text, and media
+URLs from logs or screenshots.
 
-- The main schedule switch and newly added bells start disabled.
-- Imported bells are always disabled and must be reviewed before activation.
-- Conversion tools show a preview and require confirmation before replacing
-  selected weekly bells.
-- A conversion does not enable, disable, or remove Home Assistant automations.
-- Weekly bells missed while Home Assistant is offline wait for their next
-  scheduled occurrence.
-- A recently due one-time event may run after restart within the built-in grace
-  period. Older events are marked `missed`.
-- Unavailable speakers are skipped. A one-time event is marked `missed` if no
-  selected speaker is available or the announcement fails.
+## License
 
-## Data and migration
-
-HA Family Bell stores its schedule in Home Assistant `.storage`; it does not
-generate automation YAML. Version 1 schedules migrate to the current data model
-without converting direct messages into routines or message sets.
-
-Use **Export JSON** before a large edit or migration. Imported rows are created
-disabled so that times, messages, and speakers can be reviewed before use.
-
-## Development
-
-```bash
-python -m pip install .[test] ruff
-ruff format --check .
-ruff check .
-pytest
-node --check custom_components/ha_family_bell/frontend/ha-family-bell-panel.js
-```
-
-Before publishing a release, also run Hassfest and HACS validation from GitHub
-Actions or an equivalent Linux environment.
+HA Family Bell is available under the [MIT License](LICENSE).

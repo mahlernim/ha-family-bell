@@ -1,10 +1,10 @@
 test:
   name: Test bell
-  description: Immediately play an existing bell without changing its schedule.
+  description: Play an existing bell immediately without changing its schedule or message-set sequence.
   fields:
     id:
       name: Bell ID
-      description: UUID shown in the panel or next-bell sensor.
+      description: Bell ID from the Next bell sensor attributes.
       required: true
       example: "10eaa9ee-1eb1-43e6-a98c-45f896734a54"
       selector:
