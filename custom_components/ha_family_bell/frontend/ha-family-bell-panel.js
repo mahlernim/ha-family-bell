@@ -233,13 +233,8 @@ class HaFamilyBellPanel extends HTMLElement {
     </div>`;
   }
 
-  messageSummary(source) {
-    const wrapper = this.friendlyTemplate(source.template);
-    if (source.kind !== "message_set") return wrapper;
-    const set = this.data.message_sets.find((item) => item.id === source.set_id);
-    const name = set?.name || "Missing set";
-    const extra = wrapper && wrapper !== "%randomset%" ? ` · ${wrapper}` : "";
-    return `Set: ${name}${extra}`;
+  previewMessageText(source) {
+    return this.friendlyTemplate(source.template);
   }
 
   speakerSummary(speakers) {
@@ -261,7 +256,7 @@ class HaFamilyBellPanel extends HTMLElement {
       enabled: bell.enabled,
       source: "Weekly",
       sourceKey: "weekly",
-      message: this.messageSummary(bell.message_source),
+      message: this.previewMessageText(bell.message_source),
       speakers: bell.speakers,
       ownerType: "weekly",
       ownerId: bell.id,
@@ -274,7 +269,7 @@ class HaFamilyBellPanel extends HTMLElement {
         enabled: row.enabled,
         source: row.routine_name,
         sourceKey: row.routine_id,
-        message: this.messageSummary(row.message_source),
+        message: this.previewMessageText(row.message_source),
         speakers: row.speakers,
         ownerType: "routine",
         ownerId: row.routine_id,
@@ -320,7 +315,7 @@ class HaFamilyBellPanel extends HTMLElement {
       enabled: bell.enabled,
       source: "One-time",
       sourceKey: "one-time",
-      message: this.messageSummary(bell.message_source),
+      message: this.previewMessageText(bell.message_source),
       speakers: bell.speakers,
       ownerType: "one_time",
       ownerId: bell.id,
@@ -335,7 +330,7 @@ class HaFamilyBellPanel extends HTMLElement {
       .filter((bell) => !this.previewActiveOnly || bell.enabled)
       .sort((a, b) => a.datetime.localeCompare(b.datetime));
     return `<div class="toolbar preview-toolbar"><div><h2>Week preview</h2><p>Standalone and routine bells together, grouped by day.</p></div><label class="preview-filter"><input id="preview-active-only" type="checkbox" ${this.previewActiveOnly ? "checked" : ""}> Enabled only</label></div>
-      <div class="preview-legend"><span>Time</span><span>Source</span><span>Message / set</span><span>Speakers</span><span>State</span><span></span></div>
+      <div class="preview-legend"><span>Time</span><span>Source</span><span>Message</span><span>Speakers</span><span>State</span><span></span></div>
       ${DAYS.map((day, weekday) => {
         const rows = visible.filter((entry) => entry.weekday === weekday);
         return `<section class="day-group preview-day"><div class="day-heading"><h2>${day}</h2><span>${rows.length} bell${rows.length === 1 ? "" : "s"}</span></div>${rows.length ? rows.map((entry) => this.previewRow(entry)).join("") : `<div class="empty compact">No bells</div>`}</section>`;

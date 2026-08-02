@@ -235,13 +235,17 @@ Each row shows:
 
 - time
 - source schedule or routine
-- message or linked set
+- readable message template
 - selected speakers
 - enabled state
 - an Edit shortcut to the owning section
 
 Source colors distinguish independent weekly bells, individual routines, and
 one-time events. Use **Enabled only** to hide disabled recurring items.
+
+For a bell linked to a message set, Preview shows the message wrapper with the
+`%randomset%` placeholder. The message-set name remains available in the bell
+editor, where the link can be changed.
 
 A conflict warning appears when two bells share both the same exact time and at
 least one speaker. The warning helps with schedule review; speaker queuing still

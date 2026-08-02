@@ -242,7 +242,7 @@ def test_panel_defaults_to_combined_preview_and_keeps_weekly_standalone() -> Non
     assert "Standalone recurring bells. Routine bells are edited in Routines." in panel_source
     assert "routineOccurrenceRow" not in panel_source
     assert 'data-preview-owner="${entry.ownerType}"' in panel_source
-    assert "<span>Source</span><span>Message / set</span>" in panel_source
+    assert "<span>Source</span><span>Message</span>" in panel_source
     assert "<span>Source</span><span>Bell</span>" not in panel_source
     assert "source: row.routine_name" in panel_source
     assert 'data-routine-action="enable-all"' in panel_source
