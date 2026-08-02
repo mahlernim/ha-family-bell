@@ -1,0 +1,13 @@
+{
+  "domain": "ha_family_bell",
+  "name": "HA Family Bell",
+  "codeowners": ["@mahlernim"],
+  "config_flow": true,
+  "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
+  "documentation": "https://github.com/mahlernim/ha-family-bell",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/mahlernim/ha-family-bell/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

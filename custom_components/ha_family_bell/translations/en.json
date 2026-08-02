@@ -1,0 +1,21 @@
+{
+  "config": {
+    "abort": {
+      "single_instance_allowed": "Only one HA Family Bell instance is allowed."
+    },
+    "step": {
+      "user": {
+        "description": "Create a locally managed weekly and one-time bell schedule. The master switch starts off to prevent accidental announcements.",
+        "title": "Set up HA Family Bell"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_bell": { "name": "Next bell" }
+    },
+    "switch": {
+      "schedule": { "name": "Schedule" }
+    }
+  }
+}
