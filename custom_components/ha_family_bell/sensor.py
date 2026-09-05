@@ -22,7 +22,7 @@ async def async_setup_entry(
 class FamilyBellNextSensor(FamilyBellEntity, SensorEntity):
     """Timestamp and details for the next bell."""
 
-    _attr_name = "Next bell"
+    _attr_translation_key = "next_bell"
     _attr_icon = "mdi:calendar-clock"
     _attr_unique_id = "ha_family_bell_next"
     _attr_device_class = SensorDeviceClass.TIMESTAMP

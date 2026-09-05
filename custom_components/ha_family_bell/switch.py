@@ -20,7 +20,7 @@ async def async_setup_entry(
 class FamilyBellMasterSwitch(FamilyBellEntity, SwitchEntity):
     """Globally enable or pause all bells."""
 
-    _attr_name = "Schedule"
+    _attr_translation_key = "schedule"
     _attr_icon = "mdi:bell-ring"
     _attr_unique_id = "ha_family_bell_schedule"
 

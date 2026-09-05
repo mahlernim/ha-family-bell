@@ -11,6 +11,7 @@ class FamilyBellEntity(Entity):
     """Common config-entry entity behavior."""
 
     _attr_has_entity_name = True
+    _attr_should_poll = False
 
     def __init__(self, manager: FamilyBellManager) -> None:
         self.manager = manager

@@ -1,698 +1,414 @@
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+import { DAYS, wallTime, tomorrow, eventDatetime, friendlyTemplate, previewEntries, translate } from "./panel-model.js?v=0.4.0";
 
-class HaFamilyBellPanel extends HTMLElement {
+const escape = (value = "") => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const clone = value => JSON.parse(JSON.stringify(value));
+const checked = value => value ? " checked" : "";
+
+export class HaFamilyBellPanel extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
     this.data = null;
     this.activeTab = "preview";
-    this.previewActiveOnly = false;
-    this.loading = false;
+    this.filters = { today: false, enabledOnly: false, hideEmpty: false, search: "", speaker: "" };
+    this._epoch = 0;
+    this._busy = false;
     this.error = "";
-    this._hass = null;
-    this._subscribed = false;
-    this._mutating = 0;
-    this._feedbackDepth = 0;
-    this._reloadQueued = false;
+    this.notice = "";
+    this.shadowRoot.innerHTML = '<link rel="stylesheet" href="' + new URL("./panel.css?v=0.4.0", import.meta.url).href + '"><main id="app"></main><dialog id="editor"></dialog>';
+    this.shadowRoot.addEventListener("click", event => this.handleClick(event));
+    this.shadowRoot.addEventListener("change", event => this.handleChange(event));
+    this.shadowRoot.addEventListener("input", event => this.handleInput(event));
+    this.shadowRoot.addEventListener("submit", event => { event.preventDefault(); this.saveEditor(event.target); });
+    this.dialog.addEventListener("cancel", event => { event.preventDefault(); this.closeEditor(); });
+    this._beforeUnload = event => {
+      if (this.editor?.dirty) { event.preventDefault(); event.returnValue = ""; }
+    };
   }
 
+  get dialog() { return this.shadowRoot.getElementById("editor"); }
   set hass(value) {
     this._hass = value;
-    if (!this.data && !this.loading) this.load();
-    if (!this._subscribed && value) this.subscribe();
+    if (this.isConnected && !this.data) this.load();
+    if (this.isConnected) this.subscribe();
   }
   get hass() { return this._hass; }
-  set route(_value) {}
-  set panel(_value) {}
-  connectedCallback() { this.render(); }
-
+  t(key, values) { return translate(key, this.hass?.locale?.language || this.hass?.language || "en", values); }
+  connectedCallback() {
+    this._epoch++;
+    this.load();
+    this.subscribe();
+    this._clock = window.setInterval(() => this.render(), 60000);
+    window.addEventListener("beforeunload", this._beforeUnload);
+  }
+  disconnectedCallback() {
+    this._epoch++;
+    this._unsubscribe?.();
+    this._unsubscribe = null;
+    this._subscribing = false;
+    window.clearInterval(this._clock);
+    window.removeEventListener("beforeunload", this._beforeUnload);
+  }
   async subscribe() {
-    this._subscribed = true;
+    if (!this.hass || this._unsubscribe || this._subscribing) return;
+    this._subscribing = true;
+    const epoch = this._epoch;
     try {
-      await this.hass.connection.subscribeMessage(() => {
-        if (this._mutating || this._feedbackDepth) this._reloadQueued = true;
-        else this.load();
-      }, { type: "ha_family_bell/subscribe" });
-    } catch (err) {
-      this._subscribed = false;
-      this.showError(err);
-    }
+      const unsubscribe = await this.hass.connection.subscribeMessage(() => this.load(), { type: "ha_family_bell/subscribe" });
+      if (epoch !== this._epoch || !this.isConnected) unsubscribe();
+      else this._unsubscribe = unsubscribe;
+    } catch (error) {
+      if (epoch === this._epoch) { this.error = error.message || String(error); this.render(); }
+    } finally { if (epoch === this._epoch) this._subscribing = false; }
   }
-
-  async mutate(message, { reload = true } = {}) {
-    this._mutating += 1;
-    try {
-      this.error = "";
-      const result = await this.hass.callWS(message);
-      if (reload) {
-        this._reloadQueued = false;
-        await this.load();
-      } else {
-        this._reloadQueued = false;
-      }
-      return result;
-    } catch (err) {
-      this.showError(err);
-      throw err;
-    } finally {
-      this._mutating = Math.max(0, this._mutating - 1);
-    }
-  }
-
-  async call(message) { return this.mutate(message); }
-
-  async saveWithFeedback(button, message, successLabel = "Saved") {
-    const initialLabel = button.textContent;
-    const started = Date.now();
-    this._feedbackDepth += 1;
-    button.disabled = true;
-    button.classList.add("is-saving");
-    button.textContent = "Saving…";
-    try {
-      await this.mutate(message, { reload: false });
-      await new Promise((resolve) => setTimeout(resolve, Math.max(0, 450 - (Date.now() - started))));
-      button.classList.remove("is-saving");
-      button.classList.add("is-saved");
-      button.textContent = `✓ ${successLabel}`;
-      await new Promise((resolve) => setTimeout(resolve, 850));
-      await this.load();
-    } catch (_err) {
-      if (button.isConnected) {
-        button.disabled = false;
-        button.classList.remove("is-saving", "is-saved");
-        button.textContent = initialLabel;
-      }
-    } finally {
-      this._feedbackDepth = Math.max(0, this._feedbackDepth - 1);
-      this._reloadQueued = false;
-    }
-  }
-
-  async toggleWithFeedback(input, message, { onSuccess, onRollback } = {}) {
-    const enabled = input.checked;
-    const started = Date.now();
-    this._feedbackDepth += 1;
-    const container = input.closest("label") || input.parentElement;
-    input.disabled = true;
-    input.setAttribute("aria-busy", "true");
-    container?.classList.add("toggle-busy");
-    try {
-      await this.mutate(message, { reload: false });
-      await new Promise((resolve) => setTimeout(resolve, Math.max(0, 450 - (Date.now() - started))));
-      onSuccess?.(enabled);
-    } catch (_err) {
-      input.checked = !enabled;
-      onRollback?.(!enabled);
-    } finally {
-      this._feedbackDepth = Math.max(0, this._feedbackDepth - 1);
-      this._reloadQueued = false;
-      if (input.isConnected) {
-        input.disabled = false;
-        input.removeAttribute("aria-busy");
-        container?.classList.remove("toggle-busy");
-      }
-    }
-  }
-
-  async buttonWithFeedback(button, message, { loadingLabel = "Applying…", successLabel = "Done", reload = false } = {}) {
-    const initialLabel = button.textContent;
-    const started = Date.now();
-    this._feedbackDepth += 1;
-    button.disabled = true;
-    button.classList.add("is-saving");
-    button.textContent = loadingLabel;
-    try {
-      await this.mutate(message, { reload: false });
-      await new Promise((resolve) => setTimeout(resolve, Math.max(0, 280 - (Date.now() - started))));
-      button.classList.remove("is-saving");
-      button.classList.add("is-saved");
-      button.textContent = `✓ ${successLabel}`;
-      await new Promise((resolve) => setTimeout(resolve, 650));
-      if (reload) await this.load();
-      else if (button.isConnected) {
-        button.disabled = false;
-        button.classList.remove("is-saved");
-        button.textContent = initialLabel;
-      }
-      return true;
-    } catch (_err) {
-      if (button.isConnected) {
-        button.disabled = false;
-        button.classList.remove("is-saving", "is-saved");
-        button.textContent = initialLabel;
-      }
-      return false;
-    } finally {
-      this._feedbackDepth = Math.max(0, this._feedbackDepth - 1);
-      this._reloadQueued = false;
-    }
-  }
-
   async load() {
-    if (!this.hass || this.loading) return;
-    this.loading = true;
-    try {
-      this.data = await this.hass.callWS({ type: "ha_family_bell/list" });
-      this.error = "";
-    } catch (err) {
-      this.showError(err);
-    } finally {
-      this.loading = false;
-      this.render();
-    }
-  }
-
-  showError(err) {
-    this.error = err?.message || err?.error?.message || String(err);
-    this.render();
-  }
-
-  escape(value) {
-    return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-  }
-
-  speakers() {
-    if (!this.hass) return [];
-    return Object.values(this.hass.states)
-      .filter((state) => state.entity_id.startsWith("media_player."))
-      .sort((a, b) => this.name(a).localeCompare(this.name(b)));
-  }
-  name(state) { return state.attributes.friendly_name || state.entity_id; }
-
-  friendlyTemplate(value) {
-    return String(value || "")
-      .replace(/{{\s*now\(\)\.strftime\((['"])%H:%M\1\)\s*}}/g, "%time%")
-      .replace(/{{\s*random_message\s*}}/g, "%randomset%");
-  }
-
-  previewMessage(template, setId) {
-    const now = new Date();
-    const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-    const set = (this.data?.message_sets || []).find((item) => item.id === setId);
-    const sample = set?.messages.find((item) => item.enabled)?.text || "random message";
-    return this.friendlyTemplate(template).replaceAll("%time%", time).replaceAll("%randomset%", sample);
-  }
-
-  speakerPicker(record) {
-    const selected = new Set(record.speakers || []);
-    const label = selected.size ? `${selected.size} speaker${selected.size === 1 ? "" : "s"}` : "Choose speakers";
-    return `<details class="speaker-picker"><summary>${label}</summary><div class="speaker-options">
-      ${this.speakers().map((state) => `<label><input type="checkbox" data-speaker="${this.escape(state.entity_id)}" ${selected.has(state.entity_id) ? "checked" : ""}><span>${this.escape(this.name(state))}</span></label>`).join("")}
-    </div></details>`;
-  }
-
-  messageEditor(source = { kind: "template", template: "" }) {
-    const linked = source.kind === "message_set";
-    const friendly = this.friendlyTemplate(source.template);
-    return `<div class="message-editor">
-      <select data-field="message-kind" aria-label="Message type"><option value="template" ${linked ? "" : "selected"}>Direct</option><option value="message_set" ${linked ? "selected" : ""}>Random set</option></select>
-      <input data-field="message-template" value="${this.escape(friendly)}" placeholder="${linked ? "%randomset%" : "Message text"}" aria-label="Message template">
-      <select data-field="message-set" aria-label="Message set" ${linked ? "" : "hidden"}><option value="">Choose set…</option>${(this.data?.message_sets || []).map((set) => `<option value="${set.id}" ${source.set_id === set.id ? "selected" : ""}>${this.escape(set.name)}</option>`).join("")}</select>
-      <div class="placeholder-tools"><span>Insert:</span><button type="button" data-placeholder="%time%">Time</button><button type="button" data-placeholder="%randomset%" ${linked ? "" : "hidden"}>Random message</button><small data-message-preview>Example: ${this.escape(this.previewMessage(friendly, source.set_id))}</small></div>
-    </div>`;
-  }
-
-  readMessageSource(root) {
-    const kind = root.querySelector('[data-field="message-kind"]').value;
-    const source = {
-      kind,
-      template: root.querySelector('[data-field="message-template"]').value.trim(),
-    };
-    if (kind === "message_set") source.set_id = root.querySelector('[data-field="message-set"]').value;
-    return source;
-  }
-
-  weeklyRow(bell) {
-    return `<div class="bell-row" data-id="${bell.id}" data-type="weekly">
-      <label class="enabled"><input data-field="enabled" type="checkbox" ${bell.enabled ? "checked" : ""}></label>
-      <select data-field="weekday">${DAYS.map((day, i) => `<option value="${i}" ${bell.weekday === i ? "selected" : ""}>${day.slice(0, 3)}</option>`).join("")}</select>
-      <input data-field="time" type="time" step="60" value="${this.escape(bell.time.slice(0, 5))}">
-      ${this.messageEditor(bell.message_source)}${this.speakerPicker(bell)}
-      <div class="actions"><button data-action="save" class="primary">Save</button><button data-action="test" data-tooltip="Play now" aria-label="Play now">▶</button><button data-action="copy" title="Copy to other days">Days</button><button data-action="duplicate" title="Duplicate bell" aria-label="Duplicate bell">⧉</button><button data-action="delete" class="danger" data-tooltip="Delete bell" aria-label="Delete bell">×</button></div>
-    </div>`;
-  }
-
-  previewMessageText(source) {
-    return this.friendlyTemplate(source.template);
-  }
-
-  speakerSummary(speakers) {
-    const byId = new Map(this.speakers().map((state) => [state.entity_id, this.name(state)]));
-    return speakers.map((entityId) => byId.get(entityId) || entityId).join(", ") || "No speakers";
-  }
-
-  sourceColor(sourceKey) {
-    const palette = ["#1689d8", "#a855f7", "#f97316", "#10a37f", "#ec4899", "#6366f1", "#14b8a6", "#a16207"];
-    const sources = ["weekly", ...this.data.routines.map((routine) => routine.id), "one-time"];
-    return palette[Math.max(sources.indexOf(sourceKey), 0) % palette.length];
-  }
-
-  previewEntries() {
-    const entries = this.data.bells.filter((bell) => bell.type === "weekly").map((bell) => ({
-      key: `weekly:${bell.id}:${bell.weekday}`,
-      weekday: bell.weekday,
-      time: bell.time,
-      enabled: bell.enabled,
-      source: "Weekly",
-      sourceKey: "weekly",
-      message: this.previewMessageText(bell.message_source),
-      speakers: bell.speakers,
-      ownerType: "weekly",
-      ownerId: bell.id,
-    }));
-    for (const row of this.data.routine_occurrences) {
-      entries.push({
-        key: `routine:${row.routine_id}:${row.step_id}:${row.weekday}`,
-        weekday: row.weekday,
-        time: row.time,
-        enabled: row.enabled,
-        source: row.routine_name,
-        sourceKey: row.routine_id,
-        message: this.previewMessageText(row.message_source),
-        speakers: row.speakers,
-        ownerType: "routine",
-        ownerId: row.routine_id,
-        stepId: row.step_id,
-      });
-    }
-    const groups = new Map();
-    for (const entry of entries) {
-      const key = `${entry.weekday}:${entry.time}`;
-      groups.set(key, [...(groups.get(key) || []), entry]);
-    }
-    for (const rows of groups.values()) {
-      for (let left = 0; left < rows.length; left += 1) {
-        for (let right = left + 1; right < rows.length; right += 1) {
-          if (rows[left].speakers.some((speaker) => rows[right].speakers.includes(speaker))) {
-            rows[left].conflict = true;
-            rows[right].conflict = true;
-          }
-        }
+    if (!this.hass || !this.isConnected) return;
+    this._reloadQueued = true;
+    if (this._loading) return this._loading;
+    this._loading = (async () => {
+      while (this._reloadQueued && this.isConnected) {
+        this._reloadQueued = false;
+        try {
+          this.data = await this.call("list");
+          this.error = "";
+          this.render();
+          this.checkEditorRevision();
+        } catch (error) { this.error = error.message || String(error); this.render(); }
       }
+    })();
+    try { await this._loading; } finally { this._loading = null; }
+  }
+  call(command, fields = {}) { return this.hass.callWS({ type: "ha_family_bell/" + command, ...fields }); }
+  async mutate(command, fields) {
+    const result = await this.call(command, fields);
+    await this.load();
+    return result;
+  }
+  button(action, text, attributes = "", primary = false) {
+    return '<button type="button" data-action="' + action + '" ' + attributes + (primary ? ' class="primary"' : "") + ">" + escape(this.t(text)) + "</button>";
+  }
+  ref(owner, id = "", step = "") { return 'data-owner="' + owner + '" data-id="' + escape(id) + '" data-step="' + escape(step) + '"'; }
+  checkbox(name, label, value, attrs = "") {
+    return '<label class="check"><input type="checkbox" name="' + name + '"' + checked(value) + " " + attrs + ">" + escape(this.t(label)) + "</label>";
+  }
+  field(name, label, value = "", type = "text", attrs = "") {
+    return '<label class="field">' + escape(this.t(label)) + '<input name="' + name + '" type="' + type + '" value="' + escape(value) + '" ' + attrs + "></label>";
+  }
+  speakerName(id) { return this.hass.states[id]?.attributes?.friendly_name || id; }
+  available(id) { return this.hass.states[id] && !["unavailable", "unknown"].includes(this.hass.states[id].state); }
+  speakerSummary(ids = []) {
+    return ids.map(id => '<span class="speaker' + (this.available(id) ? "" : " warning") + '" title="' + escape(id) + '">' + escape(this.speakerName(id)) + (this.available(id) ? "" : " · " + escape(this.t(this.hass.states[id] ? "unavailable" : "missing"))) + "</span>").join("");
+  }
+  dateLabel(value) {
+    return new Intl.DateTimeFormat(this.hass?.locale?.language || "en", { timeZone: this.data.timezone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  }
+  render() {
+    const app = this.shadowRoot.getElementById("app");
+    if (!this.data) {
+      app.innerHTML = '<h1>HA Family Bell</h1><p role="status">' + escape(this.error || this.t("loading")) + "</p>" + this.button("retry", "retry");
+      return;
     }
-    return entries.sort((a, b) => a.weekday - b.weekday || a.time.localeCompare(b.time) || a.source.localeCompare(b.source));
+    const tabs = ["preview", "weekly", "routines", "one_time", "message_sets", "activity", "settings"];
+    const next = this.data.next_bell;
+    app.innerHTML = '<header><h1>HA Family Bell</h1>' + this.checkbox("master", this.data.global_enabled ? "active" : "paused", this.data.global_enabled) + '</header><div class="summary"><span>' + escape(this.t("timezone")) + ": " + escape(this.data.timezone) + '</span><span><strong>' + escape(this.t("next")) + ":</strong> " + (next ? escape(this.dateLabel(next.occurrence)) + " · " + escape(friendlyTemplate(next.bell.message_source?.template)) : escape(this.t("noNext"))) + '</span></div><nav aria-label="Family Bell">' + tabs.map(tab => '<button type="button" data-tab="' + tab + '" aria-current="' + (tab === this.activeTab ? "page" : "false") + '">' + escape(this.t(tab)) + "</button>").join("") + '</nav><div class="feedback" role="status">' + escape(this.notice) + '</div><div class="error" role="alert">' + escape(this.error) + '</div><section id="view">' + this.view() + "</section>";
   }
-
-  previewRow(entry) {
-    return `<div class="preview-row ${entry.enabled ? "" : "disabled"}" data-preview-key="${this.escape(entry.key)}">
-      <strong class="preview-time">${this.escape(entry.displayTime || entry.time.slice(0, 5))}</strong>
-      <span><span class="source-badge" style="--source-color:${this.sourceColor(entry.sourceKey)}">${this.escape(entry.source)}</span></span>
-      <span class="preview-message" title="${this.escape(entry.message)}">${this.escape(entry.message)}</span>
-      <span class="preview-speakers" title="${this.escape(this.speakerSummary(entry.speakers))}">${this.escape(this.speakerSummary(entry.speakers))}</span>
-      <span class="preview-state ${entry.enabled ? "on" : "off"}">${entry.enabled ? "On" : "Off"}</span>
-      <span class="preview-tools">${entry.conflict ? `<span class="conflict" title="Same time and at least one shared speaker">Conflict</span>` : ""}<button data-preview-owner="${entry.ownerType}" data-owner-id="${entry.ownerId}" ${entry.stepId ? `data-step-id="${entry.stepId}"` : ""} title="Edit source" aria-label="Edit ${this.escape(entry.source)}">✎</button></span>
-    </div>`;
+  view() {
+    if (this.activeTab === "preview") return this.previewView();
+    if (this.activeTab === "weekly") {
+      return '<div class="toolbar">' + this.button("new", "add", this.ref("weekly"), true) + this.button("convert", "convert") + "</div>" +
+        DAYS.map((day, index) => { const bells = this.data.bells.filter(b => b.type === "weekly" && b.weekday === index); return '<section class="day"><h2>' + escape(this.t(day)) + "</h2>" + (bells.map(b => this.bellCard(b, "weekly")).join("") || '<p class="muted">' + escape(this.t("noBells")) + "</p>") + "</section>"; }).join("");
+    }
+    if (this.activeTab === "routines") {
+      return '<div class="toolbar">' + this.button("new", "addRoutine", this.ref("routine_meta"), true) + this.button("convert", "convert") + "</div>" +
+        (this.data.routines.map(r => '<details class="routine" open><summary><strong>' + escape(r.name) + "</strong> · " + escape(this.t("routineCount", { count: r.steps.length })) + (!r.enabled ? ' <span class="badge">' + escape(this.t("paused")) + "</span>" : "") + '</summary><div class="toolbar">' + this.checkbox("routine-enabled", "enabled", r.enabled, this.ref("routine_meta", r.id)) + this.button("all-on", "allOn", this.ref("routine", r.id)) + this.button("all-off", "allOff", this.ref("routine", r.id)) + this.button("new", "add", this.ref("routine", r.id)) + this.button("edit", "edit", this.ref("routine_meta", r.id)) + this.button("delete", "remove", this.ref("routine_meta", r.id)) + '</div><p class="muted">' + escape(this.t("pauseRoutine")) + "</p>" + r.steps.map(s => this.bellCard(s, "routine", r.id)).join("") + "</details>").join("") || '<p class="empty">' + escape(this.t("noRoutines")) + "</p>");
+    }
+    if (this.activeTab === "one_time") return '<div class="toolbar">' + this.button("new", "addEvent", this.ref("one_time"), true) + "</div>" + (this.data.bells.filter(b => b.type === "one_time").map(b => this.bellCard(b, "one_time")).join("") || '<p class="empty">' + escape(this.t("noBells")) + "</p>");
+    if (this.activeTab === "message_sets") return '<div class="toolbar">' + this.button("new", "addSet", this.ref("message_set"), true) + "</div>" + (this.data.message_sets.map(s => '<article class="card"><h2>' + escape(s.name) + '</h2><ul class="messages">' + s.messages.map(m => '<li class="' + (m.enabled ? "" : "disabled") + '">' + escape(m.text) + (m.enabled ? "" : " · " + escape(this.t("off"))) + "</li>").join("") + '</ul><div class="actions">' + this.button("edit", "edit", this.ref("message_set", s.id)) + this.button("delete", "remove", this.ref("message_set", s.id)) + "</div></article>").join("") || '<p class="empty">' + escape(this.t("noSets")) + "</p>");
+    if (this.activeTab === "activity") {
+      const records = [...(this.data.activity || []), ...[...(this.data.history || [])].reverse()];
+      return '<p class="muted">' + escape(this.t("requestOnly")) + "</p>" + (records.map(record => '<article class="card"><div class="row"><strong>' + escape(this.t(record.status)) + '</strong><span>' + (record.fired_at ? escape(this.dateLabel(record.fired_at)) : "") + " · " + escape(this.t(record.test ? "manual" : "scheduled")) + "</span></div><p>" + escape(record.message || record.name || "") + '</p><div class="speakers">' + Object.entries(record.speaker_results || {}).map(([id, status]) => '<span class="speaker">' + escape(this.speakerName(id)) + ": " + escape(this.t(status)) + "</span>").join("") + "</div>" + (record.error ? '<p class="error">' + escape(record.error) + "</p>" : "") + "</article>").join("") || '<p class="empty">' + escape(this.t("noActivity")) + "</p>");
+    }
+    const settings = this.data.settings;
+    return '<article class="card"><h2>' + escape(this.t("settings")) + '</h2><dl><dt>' + escape(this.t("provider")) + "</dt><dd>" + escape(settings.tts_service === "tts.speak" ? this.speakerName(settings.tts_entity_id) : settings.tts_service) + "</dd><dt>" + escape(this.t("language")) + "</dt><dd>" + escape(settings.language) + "</dd></dl>" + this.button("edit", "edit", this.ref("settings"), true) + '</article><article class="card"><h2>' + escape(this.t("restore")) + "</h2><p>" + escape(this.t("backupInfo")) + '</p><div class="actions">' + this.button("export", "export") + this.button("restore", "restore") + "</div></article>";
   }
-
-  oneTimePreviewRow(bell) {
-    const date = new Date(bell.datetime);
-    const label = Number.isNaN(date.getTime()) ? bell.datetime : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-    const entry = {
-      key: `one-time:${bell.id}`,
-      time: label,
-      displayTime: label,
-      enabled: bell.enabled,
-      source: "One-time",
-      sourceKey: "one-time",
-      message: this.previewMessageText(bell.message_source),
-      speakers: bell.speakers,
-      ownerType: "one_time",
-      ownerId: bell.id,
-    };
-    return this.previewRow(entry);
+  bellCard(bell, owner, routineId = "") {
+    const attrs = this.ref(owner, routineId || bell.id, routineId ? bell.id : "");
+    const when = owner === "one_time" ? this.dateLabel(bell.datetime) : (bell.time?.slice(0, 5) || "") + (owner === "routine" ? " · " + bell.weekdays.map(d => this.t(DAYS[d])).join(", ") : "");
+    return '<article class="card' + (bell.enabled ? "" : " disabled") + '"><div class="row"><strong>' + escape(when) + '</strong>' + this.checkbox("bell-enabled", "enabled", bell.enabled, attrs) + '</div>' + (bell.name ? "<h3>" + escape(bell.name) + "</h3>" : "") + "<p>" + escape(friendlyTemplate(bell.message_source?.template)) + '</p><div class="speakers">' + this.speakerSummary(bell.speakers) + '</div><div class="actions">' + (owner === "one_time" ? '<span class="badge">' + escape(this.t(bell.status)) + "</span>" : "") + this.button("edit", "edit", attrs) + this.button("test", "test", attrs) + (owner === "weekly" ? this.button("copy", "copy", attrs) : owner === "one_time" ? this.button("duplicate", "duplicate", attrs) + (bell.status !== "pending" ? this.button("reschedule", "reschedule", attrs) : "") : "") + this.button("delete", "remove", attrs) + "</div></article>";
   }
-
-  weekPreviewGrid() {
-    const entries = this.previewEntries();
-    const visible = this.previewActiveOnly ? entries.filter((entry) => entry.enabled) : entries;
-    const oneTime = this.data.bells.filter((bell) => bell.type === "one_time" && bell.status === "pending" && new Date(bell.datetime).getTime() >= Date.now())
-      .filter((bell) => !this.previewActiveOnly || bell.enabled)
-      .sort((a, b) => a.datetime.localeCompare(b.datetime));
-    return `<div class="toolbar preview-toolbar"><div><h2>Week preview</h2><p>Standalone and routine bells together, grouped by day.</p></div><label class="preview-filter"><input id="preview-active-only" type="checkbox" ${this.previewActiveOnly ? "checked" : ""}> Enabled only</label></div>
-      <div class="preview-legend"><span>Time</span><span>Source</span><span>Message</span><span>Speakers</span><span>State</span><span></span></div>
-      ${DAYS.map((day, weekday) => {
-        const rows = visible.filter((entry) => entry.weekday === weekday);
-        return `<section class="day-group preview-day"><div class="day-heading"><h2>${day}</h2><span>${rows.length} bell${rows.length === 1 ? "" : "s"}</span></div>${rows.length ? rows.map((entry) => this.previewRow(entry)).join("") : `<div class="empty compact">No bells</div>`}</section>`;
-      }).join("")}
-      <section class="day-group preview-day one-time-preview"><div class="day-heading"><h2>Upcoming one-time events</h2><span>${oneTime.length} event${oneTime.length === 1 ? "" : "s"}</span></div>${oneTime.length ? oneTime.map((bell) => this.oneTimePreviewRow(bell)).join("") : `<div class="empty compact">No pending events</div>`}</section>`;
+  previewView() {
+    const speakers = Object.keys(this.hass.states).filter(id => id.startsWith("media_player."));
+    return '<div class="filters">' + this.checkbox("today", "today", this.filters.today) + this.checkbox("enabledOnly", "enabledOnly", this.filters.enabledOnly) + this.checkbox("hideEmpty", "hideEmpty", this.filters.hideEmpty) + this.field("search", "search", this.filters.search, "search") + '<label class="field">' + escape(this.t("speakers")) + '<select name="speaker"><option value="">' + escape(this.t("allSpeakers")) + "</option>" + speakers.map(id => '<option value="' + escape(id) + '"' + (this.filters.speaker === id ? " selected" : "") + ">" + escape(this.speakerName(id)) + "</option>").join("") + '</select></label></div><div id="preview-results">' + this.previewResults() + "</div>";
   }
-
-  oneTimeRow(bell) {
-    const dateTime = new Date(bell.datetime);
-    const local = new Date(dateTime.getTime() - dateTime.getTimezoneOffset() * 60000).toISOString();
-    return `<div class="bell-row one-time" data-id="${bell.id}" data-type="one_time">
-      <label class="enabled"><input data-field="enabled" type="checkbox" ${bell.enabled ? "checked" : ""}></label>
-      <input data-field="date" type="date" value="${local.slice(0, 10)}"><input data-field="time" type="time" step="60" value="${local.slice(11, 16)}">
-      ${this.messageEditor(bell.message_source)}${this.speakerPicker(bell)}
-      <span class="status ${bell.status}">${this.escape(bell.status)}</span>
-      <div class="actions"><button data-action="save" class="primary">Save</button><button data-action="test" data-tooltip="Play now" aria-label="Play now">▶</button><button data-action="duplicate" title="Duplicate event" aria-label="Duplicate event">＋</button><button data-action="delete" class="danger" data-tooltip="Delete event" aria-label="Delete event">×</button></div>
-    </div>`;
-  }
-
-  weeklyGrid() {
-    const bells = this.data.bells.filter((bell) => bell.type === "weekly");
-    return `<div class="toolbar"><div><h2>Weekly schedule</h2><p>Standalone recurring bells. Routine bells are edited in Routines.</p></div><button id="morning-wizard" class="primary">Create Morning Routine</button></div>` + DAYS.map((day, weekday) => {
-      const rows = bells.filter((bell) => bell.weekday === weekday);
-      return `<section class="day-group"><div class="day-heading"><h2>${day}</h2><button data-add="weekly" data-weekday="${weekday}">＋ Add bell</button></div>
-        <div class="grid-header"><span>On</span><span>Day</span><span>Time</span><span>Message</span><span>Speakers</span><span>Actions</span></div>
-        ${rows.length ? rows.map((bell) => this.weeklyRow(bell)).join("") : `<div class="empty">No standalone bells</div>`}</section>`;
+  previewResults() {
+    const rows = previewEntries(this.data);
+    const today = wallTime(Date.now(), this.data.timezone).date;
+    const weekday = (new Date(today + "T12:00:00Z").getUTCDay() + 6) % 7;
+    const matches = row => (!this.filters.enabledOnly || (this.data.global_enabled && row.enabled)) && (!this.filters.speaker || row.speakers.includes(this.filters.speaker)) && (!this.filters.search || (row.message + " " + row.source + " " + row.speakers.map(id => this.speakerName(id)).join(" ")).toLowerCase().includes(this.filters.search.toLowerCase()));
+    const rowHTML = row => '<article class="preview-row' + (row.enabled && this.data.global_enabled ? "" : " disabled") + '" style="--source-color:' + this.sourceColor(row.sourceKey) + '"><strong>' + escape(row.time.slice(0, 5)) + '</strong><span class="source">' + escape(["weekly", "one_time"].includes(row.sourceKey) ? this.t(row.sourceKey) : row.source) + '</span><span class="message">' + escape(row.message) + '</span><div class="speakers">' + this.speakerSummary(row.speakers) + (row.conflict ? '<span class="badge warning" title="' + escape(this.t("queueHelp")) + '">' + escape(this.t("queue")) + "</span>" : "") + '</div>' + this.button("edit", "edit", this.ref(row.owner, row.id, row.step_id)) + "</article>";
+    return DAYS.map((day, index) => {
+      if (this.filters.today && index !== weekday) return "";
+      const entries = rows.recurring.filter(row => row.weekday === index && matches(row));
+      const date = new Date(today + "T12:00:00Z"); date.setUTCDate(date.getUTCDate() + (index - weekday + 7) % 7);
+      const dateKey = date.toISOString().slice(0, 10);
+      entries.push(...rows.events.filter(row => row.date === dateKey && matches(row)));
+      entries.sort((a, b) => a.time.localeCompare(b.time));
+      if (!entries.length && this.filters.hideEmpty) return "";
+      return '<section class="day"><h2>' + escape(this.t(day)) + (index === weekday ? ' <span class="badge">' + escape(this.t("today")) + "</span>" : "") + "</h2>" + (entries.map(rowHTML).join("") || '<p class="muted">' + escape(this.t("noBells")) + "</p>") + "</section>";
     }).join("");
   }
-
-  oneTimeGrid() {
-    const bells = this.data.bells.filter((bell) => bell.type === "one_time");
-    return `<section class="day-group"><div class="day-heading"><h2>Single-time events</h2><button data-add="one_time">＋ Add event</button></div>
-      <div class="grid-header one-time"><span>On</span><span>Date</span><span>Time</span><span>Message</span><span>Speakers</span><span>Status</span><span>Actions</span></div>
-      ${bells.length ? bells.map((bell) => this.oneTimeRow(bell)).join("") : `<div class="empty">No single-time events</div>`}</section>`;
+  sourceColor(key = "") {
+    let hash = 0; for (const char of key) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+    return ["#2979b8", "#7a55ad", "#16816b", "#b85b24", "#ba4279", "#627c21"][hash % 6];
   }
-
-  routineStepRow(routine, step) {
-    return `<div class="routine-step" data-step-id="${step.id}">
-      <label class="enabled"><input data-field="enabled" type="checkbox" ${step.enabled ? "checked" : ""}></label>
-      <input data-field="name" type="hidden" value="${this.escape(step.name)}">
-      <input data-field="time" type="time" step="60" value="${this.escape(step.time.slice(0, 5))}">
-      <details class="day-picker"><summary>${step.weekdays.map((day) => DAYS[day].slice(0, 3)).join(", ")}</summary><div>${DAYS.map((day, i) => `<label><input data-weekday="${i}" type="checkbox" ${step.weekdays.includes(i) ? "checked" : ""}>${day.slice(0, 3)}</label>`).join("")}</div></details>
-      ${this.messageEditor(step.message_source)}${this.speakerPicker(step)}
-      <div class="actions"><button data-step-action="test" data-tooltip="Play now" aria-label="Play now">▶</button><button data-step-action="delete" class="danger" data-tooltip="Delete bell" aria-label="Delete bell">×</button></div>
-    </div>`;
+  refreshPreview() { const node = this.shadowRoot.getElementById("preview-results"); if (node) node.innerHTML = this.previewResults(); }
+  editorError(error) { const node = this.dialog.querySelector("#editor-error"); if (node) node.textContent = error.message || String(error); }
+  markDirty() {
+    if (!this.editor) return;
+    this.editor.dirty = true;
+    this.editor.generation++;
+    this.editor.preview = null;
+    const status = this.dialog.querySelector("#draft-status");
+    if (status) status.textContent = this.t("unsaved");
+    const preview = this.dialog.querySelector("#operation-preview");
+    if (preview) preview.replaceChildren();
+    const commit = this.dialog.querySelector('[data-action="commit-operation"]');
+    if (commit) commit.disabled = true;
   }
-
-  routineCard(routine) {
-    return `<section class="routine-card" data-routine-id="${routine.id}">
-      <div class="routine-heading"><label class="routine-enabled"><input data-routine-enabled type="checkbox" ${routine.enabled ? "checked" : ""}><span>Routine active</span></label><input data-routine-name value="${this.escape(routine.name)}"><span>${routine.steps.length} bell${routine.steps.length === 1 ? "" : "s"}</span><button data-routine-action="enable-all" title="Enable every bell in this routine">All on</button><button data-routine-action="disable-all" title="Disable every bell in this routine">All off</button><button data-routine-action="add-step">＋ Bell</button><button data-routine-action="save" class="primary">Save</button><button data-routine-action="delete" class="danger">Delete</button></div>
-      <div class="routine-header"><span>On</span><span>Time</span><span>Days</span><span>Message / set</span><span>Speakers</span><span>Actions</span></div>
-      ${routine.steps.length ? routine.steps.map((step) => this.routineStepRow(routine, step)).join("") : `<div class="empty">No bells yet</div>`}
-    </section>`;
+  handleInput(event) {
+    if (this.dialog.contains(event.target)) this.markDirty();
+    else if (event.target.name === "search") { this.filters.search = event.target.value; this.refreshPreview(); }
   }
-
-  routinesGrid() {
-    return `<div class="toolbar"><div><h2>Routines</h2><p>Routine active pauses the whole routine. Enable or disable all changes every bell inside it.</p></div><button id="add-routine" class="primary">＋ Add routine</button></div>
-      ${this.data.routines.length ? this.data.routines.map((routine) => this.routineCard(routine)).join("") : `<div class="empty card">No routines yet. Create one from Weekly Schedule.</div>`}`;
-  }
-
-  messageSetCard(set) {
-    return `<section class="message-set-card" data-set-id="${set.id}"><div class="set-heading"><input data-set-name value="${this.escape(set.name)}"><span>${set.messages.filter((item) => item.enabled).length} enabled</span><button data-set-action="add">＋ Message</button><button data-set-action="save" class="primary">Save set</button><button data-set-action="delete" class="danger">Delete</button></div>
-      <div class="set-items">${set.messages.map((item) => `<div class="set-item" data-message-id="${item.id}"><input data-item-enabled type="checkbox" ${item.enabled ? "checked" : ""}><textarea data-item-text>${this.escape(item.text)}</textarea><button data-item-delete class="danger" data-tooltip="Remove message" aria-label="Remove message">×</button></div>`).join("")}</div></section>`;
-  }
-
-  messageSetsGrid() {
-    return `<div class="toolbar"><div><h2>Message sets</h2><p>Linked bells update automatically. Messages shuffle without repeats.</p></div><button id="add-message-set" class="primary">＋ Add set</button></div>
-      ${this.data.message_sets.length ? this.data.message_sets.map((set) => this.messageSetCard(set)).join("") : `<div class="empty card">No message sets yet.</div>`}`;
-  }
-
-  settingsPanel() {
-    const s = this.data.settings;
-    return `<details class="settings"><summary>Announcement settings</summary><div class="settings-grid">
-      <label>TTS service<input id="tts-service" value="${this.escape(s.tts_service)}"></label><label>Language<input id="language" value="${this.escape(s.language)}"></label><label class="setting-toggle" title="Reuse identical weekly and routine speech generated by Home Assistant"><input id="cache-recurring-tts" type="checkbox" ${s.cache_recurring_tts ? "checked" : ""}> Cache recurring announcements</label>
-      <label>Chime-to-speech delay<input id="intro-delay" type="number" min="0" max="60" value="${s.intro_delay}"></label><label>Queue hold<input id="queue-hold" type="number" min="0" max="120" value="${s.queue_hold_seconds}"></label>
-      <label class="wide">Chime files<textarea id="intro-urls" placeholder="/local/media/chime.m4a">${this.escape(s.intro_urls.join("\n"))}</textarea><small>One media ID, path, or URL per line. One file is fixed; multiple files are chosen randomly; empty disables the chime.</small></label><div class="settings-actions"><button id="save-settings" class="primary">Save settings</button><button id="export-json">Export JSON</button><button id="import-json">Import disabled JSON</button><input id="import-file" type="file" accept="application/json" hidden></div>
-    </div></details>`;
-  }
-
-  render() {
-    if (!this.shadowRoot) return;
-    let main = "";
-    if (this.data) {
-      if (this.activeTab === "preview") main = this.weekPreviewGrid();
-      if (this.activeTab === "weekly") main = this.weeklyGrid();
-      if (this.activeTab === "routines") main = this.routinesGrid();
-      if (this.activeTab === "one_time") main = this.oneTimeGrid();
-      if (this.activeTab === "message_sets") main = this.messageSetsGrid();
+  async handleChange(event) {
+    const target = event.target;
+    if (this.dialog.contains(target)) {
+      this.markDirty();
+      if (target.name === "kind") {
+        this.dialog.querySelector('[data-field="set"]').hidden = target.value !== "message_set";
+      }
+      if (target.name === "provider") this.dialog.querySelector('[data-field="legacy"]').hidden = target.value !== "legacy";
+      return;
     }
-    const body = !this.data ? `<div class="loading">${this.loading ? "Loading…" : "Waiting for Home Assistant…"}</div>` : `
-      <header><h1>HA Family Bell</h1><label class="master"><input id="master" type="checkbox" ${this.data.global_enabled ? "checked" : ""}><span>${this.data.global_enabled ? "Schedule active" : "Schedule paused"}</span></label></header>
-      ${this.error ? `<div class="error">${this.escape(this.error)}</div>` : ""}
-      <nav>${[["preview", "Week preview"], ["weekly", "Weekly schedule"], ["routines", "Routines"], ["one_time", "Single-time events"], ["message_sets", "Message sets"]].map(([id, label]) => `<button data-tab="${id}" class="${this.activeTab === id ? "active" : ""}">${label}</button>`).join("")}</nav>
-      ${this.settingsPanel()}<main>${main}</main><dialog id="editor"></dialog>`;
-    this.shadowRoot.innerHTML = `<style>${this.styles()}</style><div class="page">${body}</div>`;
-    this.bind();
+    if (Object.hasOwn(this.filters, target.name)) { this.filters[target.name] = target.type === "checkbox" ? target.checked : target.value; this.refreshPreview(); return; }
+    const { owner, id, step } = target.dataset;
+    target.disabled = true;
+    try {
+      if (target.name === "master") await this.mutate("set_enabled", { enabled: target.checked });
+      else if (owner === "routine" && step) await this.mutate("routine/patch_steps", { routine_id: id, step_id: step, enabled: target.checked });
+      else if (owner === "routine_meta") await this.mutate("routine/update", { routine_id: id, changes: { enabled: target.checked } });
+      else if (target.name === "bell-enabled") await this.mutate("update", { bell_id: id, changes: { enabled: target.checked } });
+    } catch (error) { this.error = error.message || String(error); this.render(); }
+    finally { target.disabled = false; }
   }
-
-  bindMessageEditors(root = this.shadowRoot) {
-    const refresh = (editor) => {
-      const linked = editor.querySelector('[data-field="message-kind"]').value === "message_set";
-      const setSelect = editor.querySelector('[data-field="message-set"]');
-      const input = editor.querySelector('[data-field="message-template"]');
-      const randomButton = editor.querySelector('[data-placeholder="%randomset%"]');
-      setSelect.hidden = !linked;
-      randomButton.hidden = !linked;
-      editor.querySelector("[data-message-preview]").textContent = `Example: ${this.previewMessage(input.value, linked ? setSelect.value : null)}`;
-    };
-    root.querySelectorAll(".message-editor").forEach((editor) => {
-      const kind = editor.querySelector('[data-field="message-kind"]');
-      const input = editor.querySelector('[data-field="message-template"]');
-      const setSelect = editor.querySelector('[data-field="message-set"]');
-      kind.addEventListener("change", () => {
-        const linked = kind.value === "message_set";
-        if (linked && !input.value.includes("%randomset%") && !input.value.includes("random_message")) input.value = `${input.value} %randomset%`.trim();
-        if (!linked) input.value = input.value.replaceAll("%randomset%", "").trim();
-        refresh(editor);
-      });
-      input.addEventListener("input", () => refresh(editor));
-      setSelect.addEventListener("change", () => refresh(editor));
-      editor.querySelectorAll("[data-placeholder]").forEach((button) => button.addEventListener("click", () => {
-        const token = button.dataset.placeholder;
-        const start = input.selectionStart ?? input.value.length;
-        const end = input.selectionEnd ?? start;
-        input.value = `${input.value.slice(0, start)}${token}${input.value.slice(end)}`;
-        input.focus();
-        input.setSelectionRange(start + token.length, start + token.length);
-        refresh(editor);
-      }));
-      refresh(editor);
-    });
-  }
-
-  bind() {
-    if (!this.data) return;
-    this.bindMessageEditors();
-    this.shadowRoot.querySelector("#master")?.addEventListener("change", (event) => this.masterToggle(event.target));
-    this.shadowRoot.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", () => { this.activeTab = button.dataset.tab; this.render(); }));
-    this.shadowRoot.querySelector("#preview-active-only")?.addEventListener("change", (event) => { this.previewActiveOnly = event.target.checked; this.render(); });
-    this.shadowRoot.querySelectorAll("[data-preview-owner]").forEach((button) => button.addEventListener("click", () => this.openPreviewOwner(button)));
-    this.shadowRoot.querySelectorAll("[data-add]").forEach((button) => button.addEventListener("click", () => this.openBellEditor(button.dataset.add, Number(button.dataset.weekday || 0))));
-    this.shadowRoot.querySelectorAll(".bell-row > .enabled [data-field=\"enabled\"]").forEach((input) => input.addEventListener("change", () => this.bellToggle(input.closest(".bell-row"), input)));
-    this.shadowRoot.querySelectorAll(".bell-row button[data-action]").forEach((button) => button.addEventListener("click", () => this.bellAction(button.closest(".bell-row"), button.dataset.action, button)));
-    this.shadowRoot.querySelectorAll("[data-open-routine]").forEach((button) => button.addEventListener("click", () => { this.activeTab = "routines"; this.render(); this.shadowRoot.querySelector(`[data-routine-id="${button.dataset.openRoutine}"]`)?.scrollIntoView(); }));
-    this.shadowRoot.querySelector("#morning-wizard")?.addEventListener("click", () => this.openMorningWizard());
-    this.shadowRoot.querySelector("#add-routine")?.addEventListener("click", () => this.openNewRoutine());
-    this.shadowRoot.querySelectorAll("[data-routine-enabled]").forEach((input) => input.addEventListener("change", () => this.routineToggle(input.closest(".routine-card"), input)));
-    this.shadowRoot.querySelectorAll(".routine-step > .enabled [data-field=\"enabled\"]").forEach((input) => input.addEventListener("change", () => this.stepToggle(input.closest(".routine-card"), input.closest(".routine-step"), input)));
-    this.shadowRoot.querySelectorAll("[data-routine-action]").forEach((button) => button.addEventListener("click", () => this.routineAction(button.closest(".routine-card"), button.dataset.routineAction, button)));
-    this.shadowRoot.querySelectorAll("[data-step-action]").forEach((button) => button.addEventListener("click", () => this.stepAction(button.closest(".routine-card"), button.closest(".routine-step"), button.dataset.stepAction)));
-    this.shadowRoot.querySelector("#add-message-set")?.addEventListener("click", () => this.openNewMessageSet());
-    this.shadowRoot.querySelectorAll("[data-set-action]").forEach((button) => button.addEventListener("click", () => this.messageSetAction(button.closest(".message-set-card"), button.dataset.setAction, button)));
-    this.shadowRoot.querySelectorAll("[data-item-delete]").forEach((button) => button.addEventListener("click", () => button.closest(".set-item").remove()));
-    this.shadowRoot.querySelector("#save-settings")?.addEventListener("click", (event) => this.saveSettings(event.currentTarget));
-    this.shadowRoot.querySelector("#export-json")?.addEventListener("click", () => this.exportJson());
-    this.shadowRoot.querySelector("#import-json")?.addEventListener("click", () => this.shadowRoot.querySelector("#import-file").click());
-    this.shadowRoot.querySelector("#import-file")?.addEventListener("change", (event) => this.importJson(event.target.files[0]));
-  }
-
-  openPreviewOwner(button) {
-    const owner = button.dataset.previewOwner;
-    this.activeTab = owner === "routine" ? "routines" : owner;
-    this.render();
-    const selector = owner === "routine" ? `[data-routine-id="${button.dataset.ownerId}"]` : `[data-id="${button.dataset.ownerId}"]`;
-    const target = this.shadowRoot.querySelector(selector);
-    target?.scrollIntoView({ behavior: "smooth", block: "center" });
-    target?.classList.add("edit-target");
-    setTimeout(() => target?.classList.remove("edit-target"), 1800);
-  }
-
-  bellData(row) {
-    const common = { enabled: row.querySelector('[data-field="enabled"]').checked, message_source: this.readMessageSource(row), speakers: [...row.querySelectorAll("[data-speaker]:checked")].map((el) => el.dataset.speaker) };
-    if (row.dataset.type === "weekly") return { ...common, type: "weekly", weekday: Number(row.querySelector('[data-field="weekday"]').value), time: row.querySelector('[data-field="time"]').value };
-    return { ...common, type: "one_time", datetime: `${row.querySelector('[data-field="date"]').value}T${row.querySelector('[data-field="time"]').value}`, status: "pending" };
-  }
-
-  async masterToggle(input) {
-    const label = input.closest("label");
-    const status = label?.querySelector("span");
-    const setStatus = (enabled) => { if (status) status.textContent = enabled ? "Schedule active" : "Schedule paused"; };
-    setStatus(input.checked);
-    await this.toggleWithFeedback(input, { type: "ha_family_bell/set_enabled", enabled: input.checked }, {
-      onSuccess: (enabled) => { this.data.global_enabled = enabled; setStatus(enabled); },
-      onRollback: setStatus,
-    });
-  }
-
-  async bellToggle(row, input) {
-    const bell = this.data.bells.find((item) => item.id === row.dataset.id);
-    await this.toggleWithFeedback(input, { type: "ha_family_bell/update", bell_id: row.dataset.id, changes: { enabled: input.checked } }, {
-      onSuccess: (enabled) => { if (bell) bell.enabled = enabled; },
-    });
-  }
-
-  async bellAction(row, action, button) {
-    const id = row.dataset.id;
-    if (action === "save") await this.saveWithFeedback(button, { type: "ha_family_bell/update", bell_id: id, changes: this.bellData(row) });
-    if (action === "test" && confirm("Play this bell now? Tests do not advance a random set.")) await this.call({ type: "ha_family_bell/test", bell_id: id });
-    if (action === "delete" && confirm("Delete this bell?")) await this.call({ type: "ha_family_bell/delete", bell_id: id });
-    if (action === "duplicate") {
-      const bell = this.bellData(row); bell.enabled = false;
-      if (bell.type === "one_time") bell.datetime = this.tomorrowAt(bell.datetime.slice(11));
-      await this.call({ type: "ha_family_bell/create", bell });
+  async handleClick(event) {
+    const target = event.target.closest("button");
+    if (!target || target.disabled) return;
+    if (target.dataset.tab) { this.activeTab = target.dataset.tab; this.notice = ""; this.render(); return; }
+    const { action, owner, id, step } = target.dataset;
+    if (!action) return;
+    if (["new", "edit", "duplicate", "reschedule"].includes(action)) { this.openEditor(owner, id, step, action); return; }
+    if (action === "cancel") { this.closeEditor(); return; }
+    if (action === "reload-editor") {
+      if (this.editor.dirty && !window.confirm(this.t("discardQuestion"))) return;
+      const editor = this.editor; this.closeEditor(true); this.openEditor(editor.owner, editor.id, editor.step, editor.action); return;
     }
-    if (action === "copy") this.openCopyDialog(id);
-  }
-
-  routineData(card) {
-    return { name: card.querySelector("[data-routine-name]").value.trim(), enabled: card.querySelector("[data-routine-enabled]").checked, steps: [...card.querySelectorAll(".routine-step")].map((row) => ({
-      id: row.dataset.stepId, name: row.querySelector('[data-field="name"]').value.trim(), enabled: row.querySelector('[data-field="enabled"]').checked,
-      time: row.querySelector('[data-field="time"]').value, weekdays: [...row.querySelectorAll("[data-weekday]:checked")].map((el) => Number(el.dataset.weekday)),
-      message_source: this.readMessageSource(row), speakers: [...row.querySelectorAll("[data-speaker]:checked")].map((el) => el.dataset.speaker),
-    })) };
-  }
-
-  patchRoutineState(routine, { routineEnabled = routine.enabled, stepEnabled } = {}) {
-    routine.enabled = routineEnabled;
-    if (stepEnabled !== undefined) routine.steps.forEach((step) => { step.enabled = stepEnabled; });
-    this.data.routine_occurrences.forEach((occurrence) => {
-      if (occurrence.routine_id === routine.id) occurrence.enabled = routine.enabled && (stepEnabled ?? routine.steps.find((step) => step.id === occurrence.step_id)?.enabled);
-    });
-  }
-
-  async routineToggle(card, input) {
-    const routine = this.data.routines.find((item) => item.id === card.dataset.routineId);
-    if (!routine) return;
-    const enabled = input.checked;
-    const previous = routine.steps.map((step) => step.enabled);
-    const nested = [...card.querySelectorAll('.routine-step [data-field="enabled"]')];
-    nested.forEach((checkbox) => { checkbox.checked = enabled; });
-    const changes = { enabled, steps: routine.steps.map((step) => ({ ...step, enabled })) };
-    await this.toggleWithFeedback(input, { type: "ha_family_bell/routine/update", routine_id: routine.id, changes }, {
-      onSuccess: () => this.patchRoutineState(routine, { routineEnabled: enabled, stepEnabled: enabled }),
-      onRollback: () => nested.forEach((checkbox, index) => { checkbox.checked = previous[index]; }),
-    });
-  }
-
-  async stepToggle(card, row, input) {
-    const routine = this.data.routines.find((item) => item.id === card.dataset.routineId);
-    if (!routine) return;
-    const enabled = input.checked;
-    const steps = routine.steps.map((step) => step.id === row.dataset.stepId ? { ...step, enabled } : step);
-    await this.toggleWithFeedback(input, { type: "ha_family_bell/routine/update", routine_id: routine.id, changes: { steps } }, {
-      onSuccess: () => {
-        const step = routine.steps.find((item) => item.id === row.dataset.stepId);
-        if (step) step.enabled = enabled;
-        this.data.routine_occurrences.filter((item) => item.routine_id === routine.id && item.step_id === row.dataset.stepId)
-          .forEach((item) => { item.enabled = routine.enabled && enabled; });
-      },
-    });
-  }
-
-  async routineAction(card, action, button) {
-    const id = card.dataset.routineId;
-    if (action === "save") await this.saveWithFeedback(button, { type: "ha_family_bell/routine/update", routine_id: id, changes: this.routineData(card) });
-    if (action === "delete" && confirm("Delete this routine? Its message sets will remain.")) await this.call({ type: "ha_family_bell/routine/delete", routine_id: id });
-    if (action === "add-step") this.openStepEditor(id);
-    if (action === "enable-all" || action === "disable-all") {
-      const enabled = action === "enable-all";
-      const count = card.querySelectorAll(".routine-step").length;
-      const name = card.querySelector("[data-routine-name]").value.trim() || "this routine";
-      if (!confirm(`${enabled ? "Enable" : "Disable"} all ${count} bells in ${name}? This saves immediately.`)) return;
-      const routine = this.data.routines.find((item) => item.id === id);
-      const checkboxes = [...card.querySelectorAll('.routine-step [data-field="enabled"]')];
-      const previous = checkboxes.map((checkbox) => checkbox.checked);
-      checkboxes.forEach((checkbox) => { checkbox.checked = enabled; });
-      const changes = { steps: routine.steps.map((step) => ({ ...step, enabled })) };
-      const saved = await this.buttonWithFeedback(button, { type: "ha_family_bell/routine/update", routine_id: id, changes }, { successLabel: "Applied" });
-      if (saved) this.patchRoutineState(routine, { stepEnabled: enabled });
-      else checkboxes.forEach((checkbox, index) => { checkbox.checked = previous[index]; });
+    if (action === "add-variant") { this.dialog.querySelector("#variants").insertAdjacentHTML("beforeend", this.variantFields({ text: "", enabled: true })); this.markDirty(); return; }
+    if (action === "remove-variant") { target.closest(".variant").remove(); this.markDirty(); return; }
+    if (action === "insert-time" || action === "insert-random") {
+      const textarea = this.dialog.querySelector('textarea[name="template"]');
+      textarea.setRangeText(action === "insert-time" ? "%time%" : "%randomset%", textarea.selectionStart, textarea.selectionEnd, "end");
+      textarea.focus(); this.markDirty(); return;
     }
+    if (action === "restore" || action === "convert" || action === "copy") { this.openOperation(action, id); return; }
+    target.disabled = true;
+    try {
+      if (action === "retry") { this.subscribe(); await this.load(); }
+      else if (action === "export") await this.exportBackup();
+      else if (action === "preview-operation") await this.previewOperation();
+      else if (action === "commit-operation") await this.commitOperation();
+      else if (action === "test" && window.confirm(this.t("playQuestion"))) {
+        const result = await this.mutate("test", { bell_id: owner === "routine" ? id + ":" + step : id });
+        this.notice = this.t(result.status) + " · " + this.t("requestOnly"); this.render();
+      } else if (action === "all-on" || action === "all-off") {
+        await this.mutate("routine/patch_steps", { routine_id: id, enabled: action === "all-on" });
+      } else if (action === "delete" && window.confirm(this.t("deleteQuestion"))) {
+        if (owner === "routine") {
+          const routine = this.data.routines.find(r => r.id === id);
+          await this.mutate("routine/update", { routine_id: id, expected_revision: routine.revision, changes: { steps: routine.steps.filter(s => s.id !== step) } });
+        } else {
+          const command = owner === "routine_meta" ? "routine/delete" : owner === "message_set" ? "message_set/delete" : "delete";
+          const field = owner === "routine_meta" ? "routine_id" : owner === "message_set" ? "set_id" : "bell_id";
+          await this.mutate(command, { [field]: id });
+        }
+      }
+    } catch (error) {
+      if (this.dialog.open) this.editorError(error);
+      else { this.error = error.message || String(error); this.render(); }
+    } finally { if (target.isConnected) target.disabled = action === "commit-operation" && !this.editor?.preview; }
   }
-
-  async stepAction(card, row, action) {
-    if (action === "test" && confirm("Play this routine bell now? Tests do not advance the shuffle.")) await this.call({ type: "ha_family_bell/routine/test_step", routine_id: card.dataset.routineId, step_id: row.dataset.stepId });
-    if (action === "delete" && confirm("Delete this routine bell?")) { row.remove(); await this.call({ type: "ha_family_bell/routine/update", routine_id: card.dataset.routineId, changes: this.routineData(card) }); }
+  speakerPicker(selected = []) {
+    const ids = [...new Set([...Object.keys(this.hass.states).filter(id => id.startsWith("media_player.")), ...selected])].sort((a, b) => this.speakerName(a).localeCompare(this.speakerName(b)));
+    return '<fieldset class="choices"><legend>' + escape(this.t("speakers")) + "</legend>" + ids.map(id => '<label class="check"><input type="checkbox" name="speakers" value="' + escape(id) + '"' + checked(selected.includes(id)) + ">" + escape(this.speakerName(id)) + (this.available(id) ? "" : ' <span class="warning">' + escape(this.t(this.hass.states[id] ? "unavailable" : "missing")) + "</span>") + "</label>").join("") + "</fieldset>";
   }
-
-  messageSetData(card) {
-    return { name: card.querySelector("[data-set-name]").value.trim(), messages: [...card.querySelectorAll(".set-item")].map((row) => ({ id: row.dataset.messageId || undefined, enabled: row.querySelector("[data-item-enabled]").checked, text: row.querySelector("[data-item-text]").value.trim() })) };
+  dayPicker(selected = []) { return '<fieldset class="choices"><legend>' + escape(this.t("days")) + "</legend>" + DAYS.map((day, index) => this.checkbox("weekdays", day, selected.includes(index), 'value="' + index + '"')).join("") + "</fieldset>"; }
+  messageFields(source = { kind: "template", template: "" }) {
+    return '<label class="field">' + escape(this.t("source")) + '<select name="kind"><option value="template">' + escape(this.t("direct")) + '</option><option value="message_set"' + (source.kind === "message_set" ? " selected" : "") + ">" + escape(this.t("random")) + '</option></select></label><label class="field" data-field="set"' + (source.kind === "message_set" ? "" : " hidden") + ">" + escape(this.t("chooseSet")) + '<select name="set_id"><option value="">' + escape(this.t("chooseSet")) + "</option>" + this.data.message_sets.map(s => '<option value="' + escape(s.id) + '"' + (s.id === source.set_id ? " selected" : "") + ">" + escape(s.name) + "</option>").join("") + '</select></label><label class="field">' + escape(this.t("message")) + '<textarea name="template" rows="4" required maxlength="10000">' + escape(source.template) + '</textarea></label><div class="actions">' + this.button("insert-time", "insertTime") + this.button("insert-random", "insertRandom") + '</div><p class="muted">' + escape(this.t("placeholders")) + "</p>";
   }
-
-  async messageSetAction(card, action, button) {
-    const id = card.dataset.setId;
-    if (action === "save") await this.saveWithFeedback(button, { type: "ha_family_bell/message_set/update", set_id: id, changes: this.messageSetData(card) }, "Saved");
-    if (action === "delete" && confirm("Delete this message set? Linked sets cannot be deleted.")) await this.call({ type: "ha_family_bell/message_set/delete", set_id: id });
-    if (action === "add") {
-      const container = card.querySelector(".set-items");
-      container.insertAdjacentHTML("beforeend", `<div class="set-item"><input data-item-enabled type="checkbox" checked><textarea data-item-text></textarea><button data-item-delete class="danger" data-tooltip="Remove message" aria-label="Remove message">×</button></div>`);
-      container.lastElementChild.querySelector("[data-item-delete]").addEventListener("click", (event) => event.target.closest(".set-item").remove());
+  variantFields(message) {
+    return '<div class="variant" data-id="' + escape(message.id || "") + '"><label class="field">' + escape(this.t("variant")) + '<textarea name="variant" rows="2" required maxlength="10000">' + escape(message.text) + "</textarea></label>" + this.checkbox("variant-enabled", "enabled", message.enabled) + this.button("remove-variant", "remove") + "</div>";
+  }
+  settingsFields(settings) {
+    const providers = [...new Set([...Object.keys(this.hass.states).filter(id => id.startsWith("tts.")), ...(settings.tts_entity_id ? [settings.tts_entity_id] : [])])];
+    return '<label class="field">' + escape(this.t("provider")) + '<select name="provider">' + providers.map(id => '<option value="' + escape(id) + '"' + (settings.tts_service === "tts.speak" && id === settings.tts_entity_id ? " selected" : "") + ">" + escape(this.speakerName(id)) + "</option>").join("") + '<option value="legacy"' + (settings.tts_service !== "tts.speak" ? " selected" : "") + ">" + escape(this.t("legacy")) + '</option></select></label><div data-field="legacy"' + (settings.tts_service !== "tts.speak" ? "" : " hidden") + ">" + this.field("tts_service", "legacy", settings.tts_service) + "</div>" + this.field("language", "language", settings.language) + this.checkbox("cache_recurring_tts", "cache", settings.cache_recurring_tts) + '<label class="field">' + escape(this.t("chimes")) + '<textarea name="intro_urls" rows="3">' + escape(settings.intro_urls.join("\n")) + "</textarea></label>" + [["intro_delay", "introDelay", 0, 60], ["queue_hold_seconds", "hold", 0, 120], ["playback_timeout_seconds", "timeout", 10, 600], ["one_time_grace_seconds", "grace", 0, 3600]].map(([name, key, min, max]) => this.field(name, key, settings[name], "number", 'required min="' + min + '" max="' + max + '" step="1"')).join("");
+  }
+  currentRecord(editor = this.editor) {
+    if (!editor) return null;
+    if (editor.owner === "settings") return this.data;
+    const collection = ["routine", "routine_meta"].includes(editor.owner) ? this.data.routines : editor.owner === "message_set" ? this.data.message_sets : this.data.bells;
+    return collection.find(record => record.id === editor.id);
+  }
+  checkEditorRevision() {
+    if (!this.editor || !this.dialog.open || this.editor.operation || !this.editor.id && this.editor.owner !== "settings") return;
+    const current = this.currentRecord();
+    const changed = !current || current.revision !== this.editor.revision || this.editor.timezone !== this.data.timezone;
+    this.dialog.querySelector("#conflict").hidden = !changed;
+  }
+  showDialog(title, content, actions = "") {
+    this.dialog.innerHTML = '<form><header><h2 id="dialog-title">' + escape(this.t(title)) + '</h2><span id="draft-status" role="status"></span></header><div id="editor-error" class="error" role="alert"></div><div id="conflict" class="warning" hidden>' + escape(this.t("changedElsewhere")) + " " + this.button("reload-editor", "reloadSaved") + '</div><fieldset id="editor-fields">' + content + '</fieldset><footer>' + this.button("cancel", "cancel") + (actions || '<button type="submit" class="primary">' + escape(this.t(this.editor.id || this.editor.owner === "settings" ? "save" : "create")) + "</button>") + "</footer></form>";
+    this.dialog.setAttribute("aria-labelledby", "dialog-title");
+    if (!this.dialog.open) this.dialog.showModal();
+  }
+  openEditor(owner, id = "", step = "", action = "edit") {
+    if (this._busy) return;
+    const reference = { owner, id };
+    const base = this.currentRecord(reference);
+    let item = clone(owner === "settings" ? this.data.settings : owner === "routine" ? base?.steps.find(s => s.id === step) || {} : base || {});
+    if (action === "new" && owner !== "routine") item = {};
+    const duplicate = action === "duplicate";
+    const rearm = action === "reschedule";
+    this.editor = { owner, id: duplicate || action === "new" && owner !== "routine" ? "" : id, step, action, item, base: base ? clone(base) : null, revision: base?.revision, timezone: this.data.timezone, dirty: false, generation: 0, rearm };
+    let fields = "";
+    if (owner === "settings") fields = this.settingsFields(item);
+    else if (owner === "routine_meta") fields = this.field("name", "routineName", item.name, "text", 'required maxlength="200"') + this.checkbox("enabled", "enabled", item.enabled || false);
+    else if (owner === "message_set") fields = this.field("name", "name", item.name, "text", 'required maxlength="200"') + '<div id="variants">' + (item.messages || [{ text: "", enabled: true }]).map(m => this.variantFields(m)).join("") + "</div>" + this.button("add-variant", "addMessage");
+    else {
+      const date = owner === "one_time" && item.datetime && !duplicate && !rearm ? wallTime(item.datetime, this.data.timezone) : { date: tomorrow(this.data.timezone), time: item.time?.slice(0, 5) || "08:00" };
+      fields = owner === "routine" ? this.field("name", "name", item.name, "text", 'maxlength="200"') : "";
+      fields += '<p class="muted">' + escape(this.t("timezone")) + ": " + escape(this.data.timezone) + "</p>";
+      if (owner === "one_time") fields += this.field("date", "date", date.date, "date", "required");
+      if (owner === "weekly") fields += '<label class="field">' + escape(this.t("days")) + '<select name="weekday">' + DAYS.map((day, index) => '<option value="' + index + '"' + (index === (item.weekday ?? 0) ? " selected" : "") + ">" + escape(this.t(day)) + "</option>").join("") + "</select></label>";
+      if (owner === "routine") fields += this.dayPicker(item.weekdays || [0, 1, 2, 3, 4]);
+      fields += this.field("time", "time", owner === "one_time" ? date.time : item.time?.slice(0, 5) || "08:00", "time", 'required step="60"') + this.checkbox("enabled", "enabled", duplicate ? false : item.enabled || false) + this.messageFields(item.message_source) + this.speakerPicker(item.speakers);
     }
+    this.showDialog(rearm ? "reschedule" : action === "new" || duplicate ? "create" : "edit", fields);
   }
-
-  tomorrowAt(time) { const date = new Date(); date.setDate(date.getDate() + 1); const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10); return `${local}T${time}`; }
-
-  openBellEditor(type, weekday) {
-    const dialog = this.shadowRoot.querySelector("#editor"); const now = new Date(); now.setMinutes(now.getMinutes() + 10); const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString();
-    dialog.innerHTML = `<form method="dialog"><h2>${type === "weekly" ? `Add ${DAYS[weekday]} bell` : "Add single-time event"}</h2>${type === "one_time" ? `<label>Date<input id="new-date" type="date" value="${local.slice(0, 10)}" required></label>` : ""}<label>Time<input id="new-time" type="time" step="60" value="${local.slice(11, 16)}" required></label><label>Message${this.messageEditor()}</label><label>Speakers${this.speakerPicker({ speakers: [] })}</label><div class="dialog-actions"><button value="cancel">Cancel</button><button id="create" class="primary">Create disabled</button></div></form>`;
-    this.bindMessageEditors(dialog);
-    dialog.querySelector("#create").addEventListener("click", async (event) => { event.preventDefault(); const bell = { type, enabled: false, message_source: this.readMessageSource(dialog), speakers: [...dialog.querySelectorAll("[data-speaker]:checked")].map((el) => el.dataset.speaker) }; if (type === "weekly") { bell.weekday = weekday; bell.time = dialog.querySelector("#new-time").value; } else bell.datetime = `${dialog.querySelector("#new-date").value}T${dialog.querySelector("#new-time").value}`; try { await this.call({ type: "ha_family_bell/create", bell }); dialog.close(); } catch (_err) {} });
-    dialog.showModal();
+  closeEditor(force = false) {
+    if (this._busy) return false;
+    if (!force && this.editor?.dirty && !window.confirm(this.t("discardQuestion"))) return false;
+    this.dialog.close(); this.editor = null; return true;
   }
-
-  openCopyDialog(id) {
-    const dialog = this.shadowRoot.querySelector("#editor"); dialog.innerHTML = `<form method="dialog"><h2>Copy to days</h2><div class="day-checks">${DAYS.map((day, i) => `<label><input type="checkbox" value="${i}">${day}</label>`).join("")}</div><div class="dialog-actions"><button value="cancel">Cancel</button><button id="copy-confirm" class="primary">Create copies</button></div></form>`;
-    dialog.querySelector("#copy-confirm").addEventListener("click", async (event) => { event.preventDefault(); const weekdays = [...dialog.querySelectorAll('input[type="checkbox"]:checked')].map((el) => Number(el.value)); if (weekdays.length) { await this.call({ type: "ha_family_bell/copy", bell_id: id, weekdays }); dialog.close(); } }); dialog.showModal();
+  setBusy(value) {
+    this._busy = value;
+    const fields = this.dialog.querySelector("#editor-fields"); if (fields) fields.disabled = value;
+    this.dialog.querySelectorAll("footer button").forEach(button => { button.disabled = value || button.dataset.action === "commit-operation" && !this.editor?.preview; });
   }
-
-  openNewRoutine() {
-    const dialog = this.shadowRoot.querySelector("#editor"); dialog.innerHTML = `<form method="dialog"><h2>New routine</h2><label>Name<input id="routine-name" value="Morning Routine" required></label><p>The routine will not announce anything until it contains an enabled bell and the main schedule is active.</p><div class="dialog-actions"><button value="cancel">Cancel</button><button id="create-routine" class="primary">Create</button></div></form>`;
-    dialog.querySelector("#create-routine").addEventListener("click", async (event) => { event.preventDefault(); await this.call({ type: "ha_family_bell/routine/create", routine: { name: dialog.querySelector("#routine-name").value, enabled: true, steps: [] } }); dialog.close(); }); dialog.showModal();
+  async saveEditor(form) {
+    if (this._busy || !this.editor || !form.reportValidity()) return;
+    const editor = this.editor;
+    const value = name => form.elements.namedItem(name)?.value || "";
+    const isChecked = name => !!form.elements.namedItem(name)?.checked;
+    const selections = name => [...form.querySelectorAll('input[name="' + name + '"]:checked')].map(input => input.value);
+    try {
+      if (editor.operation === "copy") {
+        const weekdays = selections("weekdays").map(Number);
+        if (!weekdays.length) throw Error(this.t("noDay"));
+        this.setBusy(true);
+        await this.mutate("copy", { bell_id: editor.id, weekdays });
+      } else {
+        if (editor.timezone !== this.data.timezone) throw Error(this.t("changedElsewhere"));
+        let changes;
+        let command, request;
+        if (editor.owner === "settings") {
+          changes = { tts_service: value("provider") === "legacy" ? value("tts_service") : "tts.speak", tts_entity_id: value("provider") === "legacy" ? "" : value("provider"), language: value("language"), cache_recurring_tts: isChecked("cache_recurring_tts"), intro_urls: value("intro_urls").split("\n").map(url => url.trim()).filter(Boolean) };
+          for (const key of ["intro_delay", "queue_hold_seconds", "playback_timeout_seconds", "one_time_grace_seconds"]) changes[key] = Number(value(key));
+          command = "settings"; request = { changes, expected_revision: editor.revision };
+        } else if (editor.owner === "routine_meta") {
+          changes = { name: value("name"), enabled: isChecked("enabled") };
+          command = editor.id ? "routine/update" : "routine/create";
+          request = editor.id ? { routine_id: editor.id, changes, expected_revision: editor.revision } : { routine: { ...changes, steps: [] } };
+        } else if (editor.owner === "message_set") {
+          changes = { name: value("name"), messages: [...form.querySelectorAll(".variant")].map(node => ({ ...(node.dataset.id ? { id: node.dataset.id } : {}), text: node.querySelector("textarea").value, enabled: node.querySelector('input[type="checkbox"]').checked })) };
+          command = editor.id ? "message_set/update" : "message_set/create";
+          request = editor.id ? { set_id: editor.id, changes, expected_revision: editor.revision } : { message_set: changes };
+        } else {
+          const speakers = selections("speakers"); if (!speakers.length) throw Error(this.t("noSpeaker"));
+          const source = { kind: value("kind"), template: value("template") };
+          if (source.kind === "message_set") source.set_id = value("set_id");
+          changes = { enabled: isChecked("enabled"), message_source: source, speakers };
+          if (editor.owner === "routine") {
+            const weekdays = selections("weekdays").map(Number); if (!weekdays.length) throw Error(this.t("noDay"));
+            const updated = { ...editor.item, ...changes, name: value("name"), time: value("time"), weekdays };
+            const steps = editor.step ? editor.base.steps.map(s => s.id === editor.step ? updated : s) : [...editor.base.steps, updated];
+            command = "routine/update"; request = { routine_id: editor.id, changes: { steps }, expected_revision: editor.revision };
+          } else {
+            changes.type = editor.owner;
+            if (editor.owner === "one_time") {
+              changes.datetime = eventDatetime(editor.id && !editor.rearm ? editor.item.datetime : null, value("date"), value("time"), editor.timezone);
+              if (editor.rearm) changes.status = "pending";
+            } else { changes.weekday = Number(value("weekday")); changes.time = value("time"); }
+            command = editor.id ? "update" : "create";
+            request = editor.id ? { bell_id: editor.id, changes, expected_revision: editor.revision } : { bell: changes };
+          }
+        }
+        this.setBusy(true);
+        await this.mutate(command, request);
+      }
+      this.setBusy(false); this.closeEditor(true); this.notice = this.t("saved"); this.render();
+    } catch (error) { this.editorError(error); }
+    finally { this.setBusy(false); }
   }
-
-  openStepEditor(routineId) {
-    const dialog = this.shadowRoot.querySelector("#editor"); const routine = this.data.routines.find((item) => item.id === routineId); const now = new Date(); const time = now.toTimeString().slice(0, 5);
-    dialog.innerHTML = `<form method="dialog"><h2>Add routine bell</h2><label>Time<input id="step-time" type="time" step="60" value="${time}" required></label><label>Days<div class="day-checks">${DAYS.map((day, i) => `<label><input data-weekday="${i}" type="checkbox" checked>${day}</label>`).join("")}</div></label><label>Message${this.messageEditor()}</label><label>Speakers${this.speakerPicker({ speakers: [] })}</label><div class="dialog-actions"><button value="cancel">Cancel</button><button id="create-step" class="primary">Add disabled bell</button></div></form>`;
-    this.bindMessageEditors(dialog);
-    dialog.querySelector("#create-step").addEventListener("click", async (event) => { event.preventDefault(); const selectedTime = dialog.querySelector("#step-time").value; const step = { name: `${selectedTime} bell`, enabled: false, time: selectedTime, weekdays: [...dialog.querySelectorAll("[data-weekday]:checked")].map((el) => Number(el.dataset.weekday)), message_source: this.readMessageSource(dialog), speakers: [...dialog.querySelectorAll("[data-speaker]:checked")].map((el) => el.dataset.speaker) }; await this.call({ type: "ha_family_bell/routine/update", routine_id: routineId, changes: { steps: [...routine.steps, step] } }); dialog.close(); }); dialog.showModal();
+  async exportBackup() {
+    const backup = await this.call("export");
+    const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a"); link.href = url; link.download = "family-bell-" + wallTime(Date.now(), this.data.timezone).date + ".json"; link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-
-  openNewMessageSet() {
-    const dialog = this.shadowRoot.querySelector("#editor"); dialog.innerHTML = `<form method="dialog"><h2>New message set</h2><label>Name<input id="set-name" value="Morning messages" required></label><label>First message<textarea id="set-message" required></textarea></label><div class="dialog-actions"><button value="cancel">Cancel</button><button id="create-set" class="primary">Create set</button></div></form>`;
-    dialog.querySelector("#create-set").addEventListener("click", async (event) => { event.preventDefault(); await this.call({ type: "ha_family_bell/message_set/create", message_set: { name: dialog.querySelector("#set-name").value, messages: [{ text: dialog.querySelector("#set-message").value, enabled: true }] } }); dialog.close(); }); dialog.showModal();
+  openOperation(operation, id = "") {
+    this.editor = { operation, id, dirty: false, generation: 0, preview: null };
+    if (operation === "copy") { this.showDialog("copy", this.dayPicker([])); return; }
+    let content;
+    if (operation === "restore") content = '<p>' + escape(this.t("restoreWarning")) + "</p>" + this.button("export", "export") + this.field("file", "file", "", "file", 'accept=".json,application/json" required') + '<label class="field">' + escape(this.t("restore")) + '<select name="mode"><option value="merge">' + escape(this.t("merge")) + '</option><option value="replace">' + escape(this.t("replace")) + "</option></select></label>" + this.checkbox("include_settings", "includeSettings", false);
+    else content = this.field("name", "routineName", "", "text", 'required maxlength="200"') + '<fieldset class="choices vertical"><legend>' + escape(this.t("selectRows")) + "</legend>" + this.data.bells.filter(b => b.type === "weekly").map(b => this.checkbox("bell_ids", this.t(DAYS[b.weekday]) + " " + b.time.slice(0, 5) + " · " + friendlyTemplate(b.message_source.template), false, 'value="' + escape(b.id) + '"')).join("") + "</fieldset>";
+    this.showDialog(operation === "restore" ? "restore" : "convert", content + '<div id="operation-preview" aria-live="polite"></div>', this.button("preview-operation", operation === "restore" ? "previewRestore" : "previewConvert") + this.button("commit-operation", operation === "restore" ? "confirmRestore" : "commitConvert", "disabled", true));
   }
-
-  openMorningWizard() {
-    const dialog = this.shadowRoot.querySelector("#editor"); const weekly = this.data.bells.filter((bell) => bell.type === "weekly");
-    dialog.innerHTML = `<form method="dialog"><h2>Morning Routine conversion</h2><p>Review only. Nothing changes until you preview and confirm.</p><div class="window"><label>From<input id="window-start" type="time" value="05:00"></label><label>To<input id="window-end" type="time" value="11:59"></label><label>Routine name<input id="conversion-name" value="Morning Routine"></label></div><div id="candidate-list" class="candidate-list"></div><div id="conversion-preview"></div><div class="dialog-actions"><button value="cancel">Cancel</button><button id="preview-conversion" type="button" class="primary">Preview conversion</button></div></form>`;
-    const refresh = () => { const start = dialog.querySelector("#window-start").value; const end = dialog.querySelector("#window-end").value; const candidates = weekly.filter((bell) => bell.time.slice(0, 5) >= start && bell.time.slice(0, 5) <= end); dialog.querySelector("#candidate-list").innerHTML = candidates.map((bell) => `<label><input data-candidate="${bell.id}" type="checkbox" checked><span>${DAYS[bell.weekday].slice(0, 3)} ${bell.time.slice(0, 5)}</span><span>${this.escape(this.friendlyTemplate(bell.message_source.template))}</span></label>`).join("") || `<div class="empty">No bells in this window.</div>`; };
-    refresh(); dialog.querySelector("#window-start").addEventListener("change", refresh); dialog.querySelector("#window-end").addEventListener("change", refresh);
-    dialog.querySelector("#preview-conversion").addEventListener("click", async () => { try { const ids = [...dialog.querySelectorAll("[data-candidate]:checked")].map((el) => el.dataset.candidate); const name = dialog.querySelector("#conversion-name").value; const preview = await this.hass.callWS({ type: "ha_family_bell/conversion/preview", bell_ids: ids, name }); const target = dialog.querySelector("#conversion-preview"); target.innerHTML = `<div class="preview"><strong>${preview.source_bell_ids.length} rows → ${preview.routine.steps.length} bells + ${preview.message_sets.length} message sets</strong>${preview.routine.steps.map((step) => `<div>${step.time.slice(0, 5)} · ${step.weekdays.map((day) => DAYS[day].slice(0, 3)).join(", ")} · ${this.escape(step.name)}</div>`).join("")}<button id="commit-conversion" type="button" class="danger-fill">Replace selected rows</button></div>`; target.querySelector("#commit-conversion").addEventListener("click", async () => { if (!confirm(`Replace ${ids.length} selected weekly rows with this routine? This does not enable, disable, or remove Home Assistant automations.`)) return; await this.call({ type: "ha_family_bell/conversion/commit", bell_ids: ids, name }); dialog.close(); this.activeTab = "routines"; this.render(); }); } catch (err) { this.showError(err); } });
-    dialog.showModal();
+  async previewOperation() {
+    const editor = this.editor, form = this.dialog.querySelector("form");
+    if (!form.reportValidity() || this._busy) return;
+    this.setBusy(true);
+    try {
+      let request;
+      if (editor.operation === "restore") {
+        const file = form.elements.namedItem("file").files[0];
+        if (!file || file.size > 5 * 1024 * 1024) throw Error(this.t("tooLarge"));
+        request = { payload: JSON.parse(await file.text()), mode: form.elements.namedItem("mode").value, include_settings: form.elements.namedItem("include_settings").checked };
+      } else request = { bell_ids: [...form.querySelectorAll('input[name="bell_ids"]:checked')].map(input => input.value), name: form.elements.namedItem("name").value };
+      const result = await this.call(editor.operation === "restore" ? "restore/preview" : "conversion/preview", request);
+      editor.preview = { request, result };
+      const preview = this.dialog.querySelector("#operation-preview");
+      if (editor.operation === "restore") preview.innerHTML = "<p>" + escape(this.t("counts", result.counts)) + "</p><p>" + escape(this.t(request.mode)) + "</p>";
+      else preview.innerHTML = "<h3>" + escape(result.routine.name) + "</h3><ul>" + result.routine.steps.map(s => "<li>" + escape(s.time.slice(0, 5) + " · " + s.weekdays.map(day => this.t(DAYS[day])).join(", ") + " · " + friendlyTemplate(s.message_source.template)) + "</li>").join("") + "</ul>";
+    } finally { this.setBusy(false); }
   }
-
-  async saveSettings(button) { const root = this.shadowRoot; await this.saveWithFeedback(button, { type: "ha_family_bell/settings", changes: { tts_service: root.querySelector("#tts-service").value.trim(), language: root.querySelector("#language").value.trim(), cache_recurring_tts: root.querySelector("#cache-recurring-tts").checked, intro_delay: Number(root.querySelector("#intro-delay").value), queue_hold_seconds: Number(root.querySelector("#queue-hold").value), intro_urls: root.querySelector("#intro-urls").value.split("\n").map((v) => v.trim()).filter(Boolean) } }); }
-  exportJson() { const payload = JSON.stringify({ version: 2, timezone: this.data.timezone, bells: this.data.bells, routines: this.data.routines, message_sets: this.data.message_sets }, null, 2); const url = URL.createObjectURL(new Blob([payload], { type: "application/json" })); const link = document.createElement("a"); link.href = url; link.download = `ha-family-bell-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url); }
-  async importJson(file) { if (!file) return; try { const payload = JSON.parse(await file.text()); if (!Array.isArray(payload.bells)) throw new Error("Import file must contain a bells array."); if (confirm(`Import ${payload.bells.length} bells? Every imported row will be disabled.`)) await this.call({ type: "ha_family_bell/import", bells: payload.bells }); } catch (err) { this.showError(err); } }
-
-  styles() { return `
-    :host { color: var(--primary-text-color); font-family: var(--paper-font-body1_-_font-family, sans-serif); } * { box-sizing: border-box; }
-    .page { max-width: 1700px; margin: 0 auto; padding:16px 18px; } header,.toolbar,.routine-heading,.set-heading { display:flex; justify-content:space-between; gap:10px; align-items:center; } h1,h2 { margin:0; } h1 { font-size:27px; } .toolbar p { margin:3px 0 0; color:var(--secondary-text-color); }
-    button,input,select,textarea,summary { font:inherit; } button { border:1px solid var(--divider-color); border-radius:7px; padding:7px 9px; background:var(--card-background-color); color:var(--primary-text-color); cursor:pointer; transition:opacity .15s,background-color .15s,color .15s; } button:disabled { cursor:wait; opacity:.78; } button.primary,.danger-fill { color:var(--text-primary-color); background:var(--primary-color); border-color:var(--primary-color); } button.danger,.danger-fill { color:var(--error-color); } .danger-fill { margin-top:10px; border-color:var(--error-color); background:transparent; }
-    button.is-saving::before { content:""; display:inline-block; width:12px; height:12px; margin-right:6px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:-2px; animation:bell-spin .7s linear infinite; } button.is-saved { color:var(--success-color); border-color:var(--success-color); background:color-mix(in srgb,var(--success-color) 10%,var(--card-background-color)); }
-    button[data-tooltip] { position:relative; } button[data-tooltip]::after { content:attr(data-tooltip); position:absolute; left:50%; bottom:calc(100% + 7px); z-index:30; padding:5px 7px; border-radius:6px; color:var(--card-background-color,#fff); background:var(--primary-text-color,#222); box-shadow:0 3px 10px #0004; font-size:11px; font-weight:400; line-height:1; white-space:nowrap; pointer-events:none; opacity:0; transform:translate(-50%,3px); transition:opacity .15s,transform .15s; } button[data-tooltip]:hover::after,button[data-tooltip]:focus-visible::after { opacity:1; transform:translate(-50%,0); }
-    input,select,textarea { min-width:0; border:1px solid var(--divider-color); border-radius:7px; padding:8px; color:var(--primary-text-color); background:var(--card-background-color); } textarea { min-height:54px; resize:vertical; }
-    .master { display:flex; align-items:center; gap:8px; padding:10px 13px; border-radius:10px; background:var(--card-background-color); box-shadow:var(--ha-card-box-shadow); font-weight:600; } .master input,.enabled input { width:19px; height:19px; accent-color:var(--primary-color); } label.toggle-busy > input[aria-busy="true"] { display:none; } label.toggle-busy::before { content:""; display:inline-block; width:15px; height:15px; flex:0 0 15px; border:2px solid var(--primary-color); border-right-color:transparent; border-radius:50%; vertical-align:-3px; animation:bell-spin .7s linear infinite; }
-    nav { display:flex; gap:5px; margin:10px 0; border-bottom:1px solid var(--divider-color); overflow:auto; } nav button { border:0; border-radius:0; background:none; padding:10px 14px; white-space:nowrap; } nav button.active { color:var(--primary-color); border-bottom:3px solid var(--primary-color); font-weight:600; }
-    .settings,.day-group,.routine-card,.message-set-card,.card { background:var(--card-background-color); border-radius:10px; margin-bottom:12px; box-shadow:var(--ha-card-box-shadow); } .settings { padding:11px 13px; } .settings-grid { display:grid; grid-template-columns:repeat(4,minmax(140px,1fr)); gap:10px; margin-top:12px; } .settings-grid label,dialog form>label { display:flex; flex-direction:column; gap:5px; color:var(--secondary-text-color); } .settings-grid label small { color:var(--secondary-text-color); font-size:11px; } .settings-grid .setting-toggle { flex-direction:row; align-items:center; align-self:end; min-height:36px; } .setting-toggle input { width:18px; height:18px; accent-color:var(--primary-color); } .settings-grid .wide,.settings-actions { grid-column:1/-1; } .settings-actions,.actions,.dialog-actions { display:flex; gap:5px; flex-wrap:nowrap; justify-content:flex-end; }
-    .toolbar { margin:12px 0; } .day-heading,.routine-heading,.set-heading { padding:9px 12px; border-bottom:1px solid var(--divider-color); } .day-heading { display:flex; align-items:center; justify-content:space-between; } .day-heading h2 { font-size:18px; } .grid-header,.bell-row { display:grid; grid-template-columns:36px 70px 112px minmax(300px,2fr) minmax(145px,1fr) minmax(225px,auto); gap:7px; align-items:center; padding:6px 10px; } .grid-header.one-time,.bell-row.one-time { grid-template-columns:36px 125px 112px minmax(300px,2fr) minmax(145px,1fr) 70px minmax(190px,auto); } .grid-header,.routine-header { color:var(--secondary-text-color); font-size:11px; text-transform:uppercase; background:var(--secondary-background-color); } .bell-row { border-top:1px solid var(--divider-color); }
-    .message-editor { display:grid; grid-template-columns:92px minmax(150px,1fr); gap:4px; } .message-editor [data-field="message-set"],.placeholder-tools { grid-column:1/-1; } .placeholder-tools { display:flex; align-items:center; gap:4px; flex-wrap:nowrap; color:var(--secondary-text-color); font-size:10px; } .placeholder-tools button { padding:2px 6px; font-size:10px; } .placeholder-tools small { flex-basis:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .bell-row [data-message-preview],.routine-step [data-message-preview] { display:none; } .routine-step .message-editor { grid-template-columns:90px 200px minmax(160px,1fr); } .routine-step .message-editor [data-field="message-kind"] { grid-column:1; grid-row:1; } .routine-step .message-editor [data-field="message-set"] { grid-column:2; grid-row:1; } .routine-step .message-editor [data-field="message-template"] { grid-column:3; grid-row:1; } .routine-step .message-editor:has([data-field="message-set"][hidden]) [data-field="message-template"] { grid-column:2/4; } .routine-step .placeholder-tools { grid-column:1/-1; } [hidden] { display:none!important; }
-    .speaker-picker,.day-picker { position:relative; } .speaker-picker summary,.day-picker summary { border:1px solid var(--divider-color); border-radius:7px; padding:9px; cursor:pointer; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; } .speaker-options,.day-picker>div { position:absolute; z-index:10; min-width:250px; max-height:270px; overflow:auto; background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:9px; box-shadow:var(--ha-card-box-shadow); padding:7px; } .speaker-options label,.day-picker label { display:flex; gap:8px; padding:6px; }
-    .badge { display:inline-block; margin-right:8px; padding:3px 7px; border-radius:99px; color:var(--primary-color); background:color-mix(in srgb,var(--primary-color) 12%,transparent); font-size:11px; }
-    .preview-toolbar { align-items:flex-end; } .preview-filter { display:flex; align-items:center; gap:8px; padding:9px 12px; border:1px solid var(--divider-color); border-radius:9px; background:var(--card-background-color); } .preview-filter input { width:18px; height:18px; accent-color:var(--primary-color); }
-    .preview-legend,.preview-row { display:grid; grid-template-columns:56px minmax(135px,auto) minmax(320px,2fr) minmax(135px,1fr) 42px minmax(54px,auto); gap:7px; align-items:center; padding:4px 10px; } .preview-legend { position:sticky; top:0; z-index:4; color:var(--secondary-text-color); background:var(--secondary-background-color); border-radius:7px; font-size:10px; text-transform:uppercase; } .preview-day { overflow:hidden; margin-bottom:8px; border-radius:8px; } .preview-day .day-heading { display:flex; justify-content:space-between; align-items:center; padding:7px 11px; } .preview-day .day-heading h2 { font-size:16px; } .preview-day .day-heading span { color:var(--secondary-text-color); font-size:10px; } .preview-row { min-height:32px; border-top:1px solid var(--divider-color); font-size:12px; } .preview-row.disabled { opacity:.58; } .preview-time { font-variant-numeric:tabular-nums; } .preview-message,.preview-speakers { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .preview-speakers { color:var(--secondary-text-color); font-size:11px; }
-    .source-badge,.preview-state,.conflict { display:inline-block; width:max-content; padding:2px 5px; border-radius:99px; font-size:10px; font-weight:600; } .source-badge { color:var(--source-color); background:color-mix(in srgb,var(--source-color) 14%,transparent); } .preview-state.on { color:var(--success-color); background:color-mix(in srgb,var(--success-color) 12%,transparent); } .preview-state.off { color:var(--secondary-text-color); background:var(--secondary-background-color); } .preview-tools { display:flex; align-items:center; justify-content:flex-end; gap:4px; } .preview-tools button { padding:2px 6px; min-width:28px; font-size:13px; } .conflict { color:var(--error-color); background:color-mix(in srgb,var(--error-color) 12%,transparent); } .empty.compact { padding:10px; } .one-time-preview .preview-row { grid-template-columns:140px minmax(135px,auto) minmax(320px,2fr) minmax(135px,1fr) 42px minmax(54px,auto); } .edit-target { outline:2px solid var(--primary-color); outline-offset:-2px; transition:outline-color .3s; }
-    .routine-header,.routine-step { display:grid; grid-template-columns:36px 120px 145px minmax(360px,2fr) minmax(145px,1fr) 82px; gap:7px; padding:6px 10px; align-items:center; } .routine-step { border-top:1px solid var(--divider-color); } .routine-heading [data-routine-name],.set-heading [data-set-name] { font-size:17px; font-weight:600; flex:1; } .routine-enabled { display:flex; align-items:center; gap:5px; white-space:nowrap; font-size:11px; font-weight:600; } .routine-enabled input { width:19px; height:19px; accent-color:var(--primary-color); }
-    .set-items { padding:8px 10px; display:grid; gap:5px; } .set-item { display:grid; grid-template-columns:28px 1fr 36px; gap:6px; align-items:center; } .set-item textarea { min-height:38px; height:38px; padding:8px; } .set-item button { padding:6px; }
-    .status { font-size:11px; text-align:center; } .status.completed { color:var(--success-color); } .status.missed,.error { color:var(--error-color); } .empty,.loading { padding:20px; text-align:center; color:var(--secondary-text-color); } .error { padding:10px; border-radius:8px; background:color-mix(in srgb,var(--error-color) 12%,transparent); }
-    dialog { width:min(760px,calc(100vw - 32px)); max-height:90vh; overflow:auto; border:0; border-radius:14px; padding:22px; color:var(--primary-text-color); background:var(--card-background-color); box-shadow:0 12px 45px #0007; } dialog::backdrop { background:#0008; } dialog form { display:grid; gap:14px; } .day-checks { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; } .day-checks label { display:flex; gap:7px; align-items:center; } .window { display:grid; grid-template-columns:1fr 1fr 2fr; gap:8px; } .window label { display:grid; gap:5px; } .candidate-list { max-height:300px; overflow:auto; border:1px solid var(--divider-color); border-radius:8px; } .candidate-list label { display:grid; grid-template-columns:28px 90px 1fr; gap:7px; padding:7px; border-top:1px solid var(--divider-color); } .preview { padding:12px; border-radius:8px; background:var(--secondary-background-color); }
-    @keyframes bell-spin { to { transform:rotate(360deg); } }
-    @media(max-width:950px){ .page{padding:10px} header,.toolbar{align-items:flex-start;flex-direction:column}.settings-grid{grid-template-columns:1fr}.grid-header,.routine-header,.preview-legend{display:none}.bell-row,.bell-row.one-time,.routine-step{grid-template-columns:36px 1fr 1fr}.message-editor,.speaker-picker,.actions,.status,.day-picker{grid-column:1/-1}.routine-step .message-editor{grid-template-columns:1fr}.routine-step .message-editor [data-field="message-kind"],.routine-step .message-editor [data-field="message-set"],.routine-step .message-editor [data-field="message-template"]{grid-column:1;grid-row:auto}.actions{flex-wrap:wrap}.routine-heading,.set-heading{flex-wrap:wrap}.window{grid-template-columns:1fr}.candidate-list label{grid-template-columns:28px 80px 1fr}.preview-row,.one-time-preview .preview-row{grid-template-columns:60px 82px 1fr;gap:6px}.preview-message,.preview-speakers{grid-column:1/-1;white-space:normal}.preview-state{grid-column:1}.preview-tools{grid-column:2/-1;justify-content:flex-end} }
-  `; }
+  async commitOperation() {
+    const editor = this.editor;
+    if (!editor?.preview || this._busy || !window.confirm(this.t(editor.operation === "restore" ? "restoreQuestion" : "convertQuestion"))) return;
+    this.setBusy(true);
+    try {
+      const { request, result } = editor.preview;
+      await this.mutate(editor.operation === "restore" ? "restore/commit" : "conversion/commit", { ...request, ...(editor.operation === "restore" ? { fingerprint: result.fingerprint } : { expected_revision: result.revision }) });
+      this.setBusy(false); this.closeEditor(true); this.notice = this.t(editor.operation === "restore" ? "restored" : "saved"); this.render();
+    } finally { this.setBusy(false); }
+  }
 }
 
 if (!customElements.get("ha-family-bell-panel")) customElements.define("ha-family-bell-panel", HaFamilyBellPanel);

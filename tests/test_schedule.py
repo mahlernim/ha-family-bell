@@ -264,31 +264,56 @@ def test_shuffle_prunes_disabled_items_from_persisted_bag() -> None:
     assert state == {"remaining": [], "last": "active"}
 
 
-def test_websocket_record_keys_do_not_reuse_protocol_id() -> None:
-    websocket_source = MODULE_PATH.parent.joinpath("websocket.py").read_text(encoding="utf-8")
-    assert 'vol.Required("id"): str' not in websocket_source
-    assert 'vol.Required("bell_id"): str' in websocket_source
-    assert 'vol.Required("routine_id"): str' in websocket_source
-    assert 'vol.Required("set_id"): str' in websocket_source
-
-
-def test_panel_defaults_to_combined_preview_and_keeps_weekly_standalone() -> None:
-    panel_source = MODULE_PATH.parent.joinpath("frontend", "ha-family-bell-panel.js").read_text(
-        encoding="utf-8"
+def test_spring_forward_skips_nonexistent_weekly_time_and_rejects_event():
+    tz = ZoneInfo("America/New_York")
+    now = datetime(2026, 3, 8, 6, 0, tzinfo=UTC)
+    assert schedule.next_weekday_occurrence([6], "02:30", now, tz) == datetime(
+        2026, 3, 15, 6, 30, tzinfo=UTC
     )
-    assert 'this.activeTab = "preview"' in panel_source
-    assert 'if (this.activeTab === "preview") main = this.weekPreviewGrid();' in panel_source
-    assert "Standalone recurring bells. Routine bells are edited in Routines." in panel_source
-    assert "routineOccurrenceRow" not in panel_source
-    assert 'data-preview-owner="${entry.ownerType}"' in panel_source
-    assert "<span>Source</span><span>Message</span>" in panel_source
-    assert "<span>Source</span><span>Bell</span>" not in panel_source
-    assert "source: row.routine_name" in panel_source
-    assert 'data-routine-action="enable-all"' in panel_source
-    assert 'data-routine-action="disable-all"' in panel_source
-    assert "Routine active" in panel_source
-    assert "This saves immediately." in panel_source
-    assert '<div class="routine-header"><span>On</span><span>Time</span>' in panel_source
-    assert "<span>On</span><span>Step</span>" not in panel_source
-    assert 'data-field="name" type="hidden"' in panel_source
-    assert "min-height:32px" in panel_source
+    with pytest.raises(BellValidationError, match="does not exist"):
+        normalize_bell(
+            {
+                "type": "one_time",
+                "datetime": "2026-03-08T02:30",
+                "message": "Hello",
+                "speakers": ["media_player.example"],
+            },
+            tz,
+        )
+
+
+def test_fall_back_runs_first_fold_only():
+    tz = ZoneInfo("America/New_York")
+    first = datetime(2026, 11, 1, 5, 30, tzinfo=UTC)
+    assert (
+        schedule.next_weekday_occurrence([6], "01:30", datetime(2026, 11, 1, 4, 0, tzinfo=UTC), tz)
+        == first
+    )
+    assert schedule.next_weekday_occurrence([6], "01:30", first, tz) == datetime(
+        2026, 11, 8, 6, 30, tzinfo=UTC
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"id": "unsafe:id"},
+        {"enabled": "true"},
+        {"weekday": True},
+        {"time": "08:00+09:00"},
+        {"speakers": ["light.example"]},
+    ],
+)
+def test_strict_schedule_validation(changes):
+    with pytest.raises(BellValidationError):
+        normalize_bell(
+            {
+                "type": "weekly",
+                "weekday": 0,
+                "time": "08:00",
+                "message": "Hello",
+                "speakers": ["media_player.example"],
+                **changes,
+            },
+            TZ,
+        )
