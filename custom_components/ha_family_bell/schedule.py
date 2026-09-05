@@ -41,7 +41,34 @@ def expand_placeholders(template: str) -> str:
 
 
 def _new_id(raw: dict[str, Any], forced_id: str | None = None) -> str:
-    return forced_id or str(raw.get("id") or uuid4())
+    value = forced_id or raw.get("id") or str(uuid4())
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value):
+        raise BellValidationError("IDs must contain only letters, numbers, underscores or hyphens")
+    return value
+
+
+def _boolean(raw: dict[str, Any], key: str = "enabled", default: bool = True) -> bool:
+    value = raw.get(key, default)
+    if not isinstance(value, bool):
+        raise BellValidationError(f"{key} must be true or false")
+    return value
+
+
+def _text(value: Any, field: str, *, limit: int = 10000) -> str:
+    if not isinstance(value, str) or len(value) > limit:
+        raise BellValidationError(f"{field} must be text of at most {limit} characters")
+    return value.strip()
+
+
+def _record(raw: Any) -> None:
+    if not isinstance(raw, dict):
+        raise BellValidationError("expected an object")
+
+
+def _unique(items: list[dict[str, Any]], label: str) -> None:
+    ids = [item["id"] for item in items]
+    if len(ids) != len(set(ids)):
+        raise BellValidationError(f"{label} IDs must be unique")
 
 
 def _parse_time(value: str) -> time:
@@ -49,6 +76,8 @@ def _parse_time(value: str) -> time:
         parsed = time.fromisoformat(value)
     except (TypeError, ValueError) as err:
         raise BellValidationError("time must be HH:MM or HH:MM:SS") from err
+    if parsed.tzinfo is not None:
+        raise BellValidationError("recurring times must be local times without a UTC offset")
     # Bell schedules intentionally use minute precision. Continue accepting
     # older/API values with seconds, but normalize them before persistence.
     return parsed.replace(second=0, microsecond=0)
@@ -61,14 +90,22 @@ def _parse_datetime(value: str, tz: ZoneInfo) -> datetime:
         raise BellValidationError("datetime must be an ISO date and time") from err
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=tz)
+        if parsed.astimezone(UTC).astimezone(tz).replace(tzinfo=None) != parsed.replace(
+            tzinfo=None
+        ):
+            raise BellValidationError("this local time does not exist because the clock changes")
     return parsed.replace(second=0, microsecond=0)
 
 
 def _normalize_speakers(value: Any) -> list[str]:
     if not isinstance(value, list) or not value:
         raise BellValidationError("at least one speaker is required")
-    speakers = sorted({str(item).strip() for item in value if str(item).strip()})
-    if not speakers or any(not item.startswith("media_player.") for item in speakers):
+    if len(value) > 100 or any(not isinstance(item, str) for item in value):
+        raise BellValidationError("speakers must be a list of at most 100 entity IDs")
+    speakers = sorted({item.strip() for item in value if item.strip()})
+    if not speakers or any(
+        not re.fullmatch(r"media_player\.[a-z0-9_]+", item) for item in speakers
+    ):
         raise BellValidationError("speakers must be media_player entity IDs")
     return speakers
 
@@ -82,12 +119,12 @@ def normalize_message_source(raw: Any) -> dict[str, str]:
     kind = str(raw.get("kind", "template"))
     if kind not in VALID_MESSAGE_KINDS:
         raise BellValidationError("message kind must be template or message_set")
-    template = expand_placeholders(str(raw.get("template", "")).strip())
+    template = expand_placeholders(_text(raw.get("template", ""), "message template"))
     if not template:
         raise BellValidationError("message template is required")
     source = {"kind": kind, "template": template}
     if kind == "message_set":
-        set_id = str(raw.get("set_id", "")).strip()
+        set_id = _text(raw.get("set_id", ""), "message set ID", limit=128)
         if not set_id:
             raise BellValidationError("message set is required")
         if "random_message" not in template:
@@ -100,6 +137,7 @@ def normalize_bell(
     raw: dict[str, Any], tz: ZoneInfo, *, bell_id: str | None = None
 ) -> dict[str, Any]:
     """Validate and normalize an independent bell for JSON storage."""
+    _record(raw)
     bell_type = raw.get("type")
     if bell_type not in VALID_TYPES:
         raise BellValidationError("type must be weekly or one_time")
@@ -107,13 +145,13 @@ def normalize_bell(
     bell: dict[str, Any] = {
         "id": _new_id(raw, bell_id),
         "type": bell_type,
-        "enabled": bool(raw.get("enabled", True)),
+        "enabled": _boolean(raw),
         "message_source": source,
         "speakers": _normalize_speakers(raw.get("speakers")),
     }
     if bell_type == "weekly":
         weekday = raw.get("weekday")
-        if not isinstance(weekday, int) or weekday not in WEEKDAYS:
+        if type(weekday) is not int or weekday not in WEEKDAYS:
             raise BellValidationError("weekday must be 0 (Monday) through 6 (Sunday)")
         bell["weekday"] = weekday
         bell["time"] = _parse_time(str(raw.get("time", ""))).isoformat()
@@ -129,11 +167,12 @@ def normalize_bell(
 
 def normalize_message_set(raw: dict[str, Any], *, set_id: str | None = None) -> dict[str, Any]:
     """Validate a reusable random-message set."""
-    name = str(raw.get("name", "")).strip()
+    _record(raw)
+    name = _text(raw.get("name", ""), "message set name", limit=200)
     if not name:
         raise BellValidationError("message set name is required")
     raw_items = raw.get("messages")
-    if not isinstance(raw_items, list) or not raw_items:
+    if not isinstance(raw_items, list) or not raw_items or len(raw_items) > 1000:
         raise BellValidationError("message set must contain at least one message")
     items = []
     for item in raw_items:
@@ -141,34 +180,38 @@ def normalize_message_set(raw: dict[str, Any], *, set_id: str | None = None) -> 
             item = {"text": item}
         if not isinstance(item, dict):
             raise BellValidationError("message-set entries must be text records")
-        text = str(item.get("text", "")).strip()
+        text = _text(item.get("text", ""), "message-set text")
         if not text:
             raise BellValidationError("message-set text cannot be empty")
         items.append(
             {
                 "id": _new_id(item),
                 "text": text,
-                "enabled": bool(item.get("enabled", True)),
+                "enabled": _boolean(item),
             }
         )
     if not any(item["enabled"] for item in items):
         raise BellValidationError("message set must have at least one enabled message")
+    _unique(items, "message")
     return {"id": _new_id(raw, set_id), "name": name, "messages": items}
 
 
 def normalize_routine_step(raw: dict[str, Any], *, step_id: str | None = None) -> dict[str, Any]:
     """Validate one exact-time routine step."""
+    _record(raw)
     weekdays = raw.get("weekdays")
     if not isinstance(weekdays, list):
         raise BellValidationError("routine step weekdays must be a list")
-    normalized_days = sorted({day for day in weekdays if isinstance(day, int)})
+    if any(type(day) is not int for day in weekdays):
+        raise BellValidationError("weekdays must be integer numbers")
+    normalized_days = sorted(set(weekdays))
     if not normalized_days or any(day not in WEEKDAYS for day in normalized_days):
         raise BellValidationError("routine step needs at least one valid weekday")
-    name = str(raw.get("name", "")).strip()
+    name = _text(raw.get("name", ""), "bell name", limit=200)
     return {
         "id": _new_id(raw, step_id),
         "name": name,
-        "enabled": bool(raw.get("enabled", True)),
+        "enabled": _boolean(raw),
         "time": _parse_time(str(raw.get("time", ""))).isoformat(),
         "weekdays": normalized_days,
         "message_source": normalize_message_source(
@@ -180,11 +223,12 @@ def normalize_routine_step(raw: dict[str, Any], *, step_id: str | None = None) -
 
 def normalize_routine(raw: dict[str, Any], *, routine_id: str | None = None) -> dict[str, Any]:
     """Validate a named routine and all of its steps."""
-    name = str(raw.get("name", "")).strip()
+    _record(raw)
+    name = _text(raw.get("name", ""), "routine name", limit=200)
     if not name:
         raise BellValidationError("routine name is required")
     raw_steps = raw.get("steps", [])
-    if not isinstance(raw_steps, list):
+    if not isinstance(raw_steps, list) or len(raw_steps) > 1000:
         raise BellValidationError("routine steps must be a list")
     steps = [normalize_routine_step(step) for step in raw_steps]
     ids = [step["id"] for step in steps]
@@ -193,7 +237,7 @@ def normalize_routine(raw: dict[str, Any], *, routine_id: str | None = None) -> 
     return {
         "id": _new_id(raw, routine_id),
         "name": name,
-        "enabled": bool(raw.get("enabled", True)),
+        "enabled": _boolean(raw),
         "steps": steps,
     }
 
@@ -205,12 +249,17 @@ def next_weekday_occurrence(
     now_local = now_utc.astimezone(tz)
     parsed_time = _parse_time(value)
     candidates = []
-    for weekday in weekdays:
-        days_ahead = (weekday - now_local.weekday()) % 7
-        candidate = datetime.combine(now_local.date() + timedelta(days=days_ahead), parsed_time, tz)
-        if candidate <= now_local:
-            candidate += timedelta(days=7)
-        candidates.append(candidate.astimezone(UTC))
+    # Once per local date, first fold only; skip nonexistent spring-forward times.
+    for offset in range(15):
+        day = now_local.date() + timedelta(days=offset)
+        if day.weekday() not in weekdays:
+            continue
+        candidate = datetime.combine(day, parsed_time, tz)
+        utc = candidate.astimezone(UTC)
+        if utc > now_utc and utc.astimezone(tz).replace(tzinfo=None) == candidate.replace(
+            tzinfo=None
+        ):
+            candidates.append(utc)
     return min(candidates)
 
 

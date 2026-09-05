@@ -1,12 +1,37 @@
 {
   "config": {
     "abort": {
-      "single_instance_allowed": "Only one HA Family Bell instance is allowed."
+      "single_instance_allowed": "Only one HA Family Bell instance is allowed.",
+      "already_configured": "Only one HA Family Bell instance is allowed."
     },
     "step": {
       "user": {
         "description": "Manage weekly announcements, reusable routines, message sets, and one-time events from one panel. The main schedule starts disabled to prevent accidental playback.",
         "title": "Set up HA Family Bell"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_bell": {
+        "name": "Next bell"
+      }
+    },
+    "switch": {
+      "schedule": {
+        "name": "Schedule"
+      }
+    }
+  },
+  "services": {
+    "test": {
+      "name": "Test bell",
+      "description": "Play a saved bell immediately without changing its schedule or message-set sequence.",
+      "fields": {
+        "id": {
+          "name": "Bell ID",
+          "description": "Use bell_id from the Next bell sensor, including the routine:step form for a routine bell."
+        }
       }
     }
   }

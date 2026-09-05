@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 .venv/
 private-import*.json
+node_modules/
+test-results/
+playwright-report/

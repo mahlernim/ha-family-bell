@@ -1,5 +1,4 @@
 {
   "name": "HA Family Bell",
-  "homeassistant": "2026.7.0",
-  "render_readme": true
+  "homeassistant": "2026.7.0"
 }

@@ -1,354 +1,167 @@
-# HA Family Bell User Guide
+# HA Family Bell 사용 안내
 
-This guide explains how to install, configure, and use HA Family Bell. The
-integration manages spoken announcements inside Home Assistant without
-creating automation YAML.
-
-## Contents
-
-1. [Install the integration](#install-the-integration)
-2. [Complete the first setup](#complete-the-first-setup)
-3. [Understand the schedule controls](#understand-the-schedule-controls)
-4. [Create a weekly bell](#create-a-weekly-bell)
-5. [Create and manage a routine](#create-and-manage-a-routine)
-6. [Create a message set](#create-a-message-set)
-7. [Use message placeholders](#use-message-placeholders)
-8. [Create a one-time event](#create-a-one-time-event)
-9. [Configure chimes and TTS](#configure-chimes-and-tts)
-10. [Use Week Preview](#use-week-preview)
-11. [Move an existing schedule](#move-an-existing-schedule)
-12. [Back up and restore schedule data](#back-up-and-restore-schedule-data)
-13. [Troubleshoot announcements](#troubleshoot-announcements)
+[한국어](#한국어) · [English](#english) · [설치 안내](../README.md)
 
-## Install the integration
+## 한국어
 
-### Install with HACS
-
-1. Open HACS in Home Assistant.
-2. Open **Integrations**.
-3. Add `https://github.com/mahlernim/ha-family-bell` as a custom repository
-   with the **Integration** category.
-4. Search for **HA Family Bell** and select **Download**.
-5. Restart Home Assistant when HACS requests it.
-6. Go to **Settings → Devices & services → Add integration**.
-7. Search for **HA Family Bell** and complete the setup.
-
-### Install manually
+### 일정 확인과 편집
 
-1. Download the repository.
-2. Copy `custom_components/ha_family_bell` into the `custom_components`
-   directory in your Home Assistant configuration.
-3. Restart Home Assistant.
-4. Add **HA Family Bell** from **Settings → Devices & services**.
+**주간 미리보기**에서 주간 알림, 루틴과 앞으로 7일 안의 일회성 알림을 함께
+확인하세요. **오늘**, **사용 중인 알림만**, **빈 요일 숨기기**, 메시지 검색,
+스피커 필터를 조합할 수 있습니다. 같은 시간에 같은 스피커를 사용하는 활성 알림에는
+스피커 겹침 표시가 나타납니다. 중지된 알림은 겹침 계산에서 제외됩니다.
 
-Only one HA Family Bell integration instance can be configured.
+각 행의 **수정**은 해당 알림을 바로 엽니다. 다른 화면에서 상태가 바뀌어도 편집 중인
+내용은 유지됩니다. 같은 알림을 다른 관리자가 먼저 저장했다면 변경 안내가 표시되고
+오래된 내용의 저장을 거부합니다. 필요한 초안을 따로 보관한 뒤 **저장된 내용 불러오기**를
+선택하세요. 저장 오류가 나면 편집창 안의 오류를 확인하고 다시 시도하세요.
 
-## Complete the first setup
+<img src="images/panel-editor-mobile.png" alt="가상 일정의 모바일 편집창 예시" width="330">
 
-1. Open **HA Family Bell** from the Home Assistant sidebar.
-2. Expand **Announcement settings**.
-3. Confirm the TTS service and language.
-4. Optionally add one or more chime files.
-5. Create a test bell and select one or more media-player speakers.
-6. Use the bell's **Test** button to confirm chime and speech playback.
-7. Enable the bell.
-8. Turn on **Schedule active** only after the schedule has been reviewed.
+### 루틴과 메시지
 
-Testing a bell plays it immediately. It does not change its scheduled time or
-consume the live sequence of a linked message set.
+루틴을 만들고 원하는 요일과 시각의 알림을 추가하세요. 루틴을 중지해도 개별 알림의
+체크 상태는 유지됩니다. **모두 사용/모두 중지**는 해당 루틴의 개별 알림 설정을 바꿉니다.
+**주간 알림을 루틴으로 묶기**에서 대상 알림을 선택하고 변환 결과를 확인한 뒤 적용할
+수 있습니다. 적용하면 선택한 독립 알림을 제안된 루틴으로 교체합니다.
 
-## Understand the schedule controls
+직접 입력 메시지에서는 %time%를 현재 HA 현지 시각으로 바꿉니다.
+메시지 모음을 연결할 때는 %randomset%를 넣으세요. 예:
 
-The **Schedule active** switch is the main safety control. No scheduled bell
-can run while it is off.
+    지금은 %time%입니다. %randomset%
 
-A weekly bell runs when both of these controls are on:
+활성 메시지를 한 차례씩 사용한 후 새 순서를 만들며, 두 개 이상일 때는 순환 경계에서도
+같은 메시지를 연속 선택하지 않습니다. **저장된 알림 재생**은 순환 순서를 소모하지
+않습니다. 메시지 모음은 연결된 알림이 있는 동안 삭제할 수 없습니다.
+고급 사용자는 Home Assistant Jinja 템플릿도 사용할 수 있습니다.
 
-- Schedule active
-- The bell's Active checkbox
+### TTS와 실행 결과
 
-A routine bell runs only when all three controls are on:
+**알림 설정 → 수정**에서 TTS 엔티티를 선택하면 tts.speak로 요청합니다.
+기존 TTS 서비스 옵션은 tts.google_translate_say 같은 설정을 유지할 때 사용합니다.
+언어를 비워 두면 제공자의 기본 언어를 사용합니다. 제공자에 맞는 언어 코드를 선택하세요.
+[Home Assistant TTS 안내](https://www.home-assistant.io/integrations/tts/)에서 제공자와
+스피커 설정을 확인할 수 있습니다.
 
-- Schedule active
-- Routine active
-- The bell's Active checkbox
+시작음은 줄마다 하나의 미디어 경로나 URL을 입력하세요. 여러 줄이면 무작위로 선택하고,
+비우면 시작음을 사용하지 않습니다. 반복 알림의 TTS 캐시는 기본적으로 켜져 있습니다.
+테스트와 일회성 알림은 캐시를 요청하지 않습니다.
 
-Changing **Routine active** also applies the same enabled state to every bell in
-that routine. Turning it off disables the nested bells; turning it on enables
-them.
+최근 실행에는 대기 중/전송 중, 전송됨/일부 전송됨/실패/취소됨 상태와 스피커별 결과가
+표시됩니다. 스피커로 이미 전송한 오디오는 전체 일정을 중지해도 멈추지 않을 수 있습니다.
+기본 최대 재생 대기 시간은 180초입니다. 스피커가 재생 상태를 전달하지 않는 경우
+문구 길이로 시간을 추정하므로 긴 음성이나 다른 미디어와의 완벽한 동기화를 보장하지 않습니다.
 
-## Create a weekly bell
+### 백업과 복원
 
-Use a weekly bell for an independent announcement that repeats on one weekday.
+1. **알림 설정 → 백업 다운로드**로 현재 데이터를 저장하세요.
+2. **백업 복원**에서 JSON 파일을 선택하세요.
+3. **기존 일정에 추가** 또는 **기존 일정 교체**를 선택하세요.
+4. 필요하면 **알림 설정도 복원**을 체크하고 **복원 미리보기**를 누르세요.
+5. 표시된 개수와 모드를 확인한 뒤 **중지 상태로 복원**을 선택하세요.
+6. 스피커와 TTS 설정을 확인하고 필요한 루틴과 개별 알림을 사용 상태로 바꾸세요.
 
-1. Open **Weekly Schedule**.
-2. Find the required weekday and select **Add bell**.
-3. Enter the local time. Bells are scheduled by hour and minute.
-4. Choose a direct message or a linked message set.
-5. Select one or more speakers.
-6. Save the bell.
-7. Test it before enabling it.
+추가는 현재 항목을 유지하면서 새 ID를 가진 복사본을 만들고 메시지 모음 연결도 옮깁니다.
+교체는 현재 일정과 메시지 모음을 대체하고 전체 일정을 일시 중지합니다.
+복원된 루틴과 모든 개별 알림은 중지 상태입니다. 기존 항목을 덮어쓰는 ID 충돌은 없습니다.
 
-Weekly bells can be duplicated, copied to other weekdays, or moved to another
-weekday. Copies remain independent; editing one copy does not change another.
+백업에는 전체 사용 스위치, 실행 기록, 무작위 선택 진행 상태가 포함되지 않습니다.
+이전 백업도 일정 복원에 사용할 수 있지만 알림 설정이 없으면 설정 복원 옵션을 끄세요.
+HA와 다른 시간대의 백업은 시간 변환 후 가져와야 하며, 그대로 복원하면 오류를 표시합니다.
+파일은 5 MB 이하여야 합니다. 미리보기 이후 일정이 변경되면 다시 미리보기를 해야 합니다.
 
-## Create and manage a routine
+### 문제 해결
 
-Use a routine for a group of related recurring announcements, such as a morning
-sequence, medication reminders, study prompts, or closing-time notices.
+- **알림이 실행되지 않음:** 전체 일정, 루틴, 개별 알림의 사용 상태와 HA 시간대를 확인하세요.
+- **전송됐지만 소리가 없음:** 스피커 상태와 TTS 제공자, 언어 코드, 스피커가 미디어 URL에
+  접근할 수 있는지 확인하세요. 저장된 알림 재생은 실제 오디오를 요청합니다.
+- **완료/지나감 일회성 알림:** 편집만으로 다시 실행되지 않습니다. 새 미래 시간으로 다시 예약하세요.
+- **재로드/재시작 중 중단:** 결과를 확정할 수 없는 일회성 시도는 자동 재생하지 않습니다.
+  최근 실행, 스피커와 HA 로그를 확인하고 필요한 경우 다시 예약하세요.
+- **패널이 예전 모습:** 업데이트 후 HA를 재시작하고 브라우저를 새로고침하세요.
 
-1. Open **Routines**.
-2. Select **New routine**.
-3. Enter a descriptive routine name.
-4. Add a bell to the routine.
-5. Choose its hour, minute, and one or more weekdays.
-6. Enter a message or select a message set.
-7. Select the speakers and save.
-8. Repeat for each announcement in the routine.
+문제를 보고할 때 통합 버전, HA 버전, 오류 문구와 재현 순서를 알려주세요.
+실제 메시지나 백업을 공개 이슈에 그대로 첨부하지 마세요.
 
-Use **Routine active** to pause or resume the whole routine. **All on** and
-**All off** change every individual bell in that routine and save immediately.
-They do not affect other routines or independent weekly bells.
+## English
 
-Routine occurrences appear in **Week Preview**, but routine bells are edited
-only from **Routines**.
+### Review and edit schedules
 
-## Create a message set
+**Week preview** combines recurring bells and one-time events in the next seven
+days. Combine Today, Enabled only, Hide empty days, search and speaker filters.
+Shared-speaker warnings apply to enabled bells scheduled for the same minute.
+Paused bells do not create conflict warnings.
 
-Message sets provide variation while keeping message management in one place.
+**Edit** opens the exact bell or routine step. Background updates preserve the
+draft. If someone else changes the same record, save is rejected with a conflict
+message. Keep any draft text you need, then choose **Reload saved version**.
+Save errors stay in the dialog so you can correct the problem and try again.
 
-1. Open **Message Sets**.
-2. Select **New message set**.
-3. Enter a clear name.
-4. Add two or more message variants.
-5. Enable the variants that may be announced.
-6. Save the set.
-7. Link the set from a weekly bell, routine bell, or one-time event.
+### Routines and messages
 
-Enabled variants use a shuffle bag: every enabled variant is selected once
-before the set is reshuffled. The sequence is shared by every bell linked to
-that set and is preserved across Home Assistant restarts.
-
-Editing a message set immediately affects every linked bell. A set that is in
-use cannot be deleted until its linked bells are changed. A set containing one
-enabled variant is valid and always returns that variant.
-
-## Use message placeholders
-
-HA Family Bell supports readable placeholders for the two most common dynamic
-values:
-
-- `%time%` — current Home Assistant local time in `HH:MM` format
-- `%randomset%` — next message from the linked message set
-
-Example using a direct message:
-
-```text
-The time is %time%. Please prepare for the next activity.
-```
-
-Example using a linked message set:
-
-```text
-Good morning. It is %time%. %randomset%
-```
-
-Use the **Time** and **Random message** buttons to insert placeholders. The
-Random message placeholder is available only when the bell uses a message set.
-
-Advanced Jinja templates are also supported. If a template is not recognized
-as a friendly placeholder, the original Jinja expression remains unchanged.
-
-## Create a one-time event
-
-Use a one-time event for an announcement that should run once on a specific
-date and time.
-
-1. Open **Single-time Events**.
-2. Select **Add event**.
-3. Choose the local date and time.
-4. Enter a message or select a message set.
-5. Select the speakers.
-6. Save and enable the event.
-
-Event states are:
-
-- `pending` — waiting for its scheduled time
-- `completed` — successfully sent to at least one selected speaker
-- `missed` — too old to recover, no selected speaker was available, or the
-  announcement failed
-
-One-time events bypass TTS caching so dynamic message content is generated at
-the time of the event.
-
-## Configure chimes and TTS
-
-Open **Announcement settings** from the top of the panel.
-
-### TTS service
-
-The default is `tts.google_translate_say`. The configured service must accept
-the `entity_id`, `message`, `language`, and `cache` fields sent by HA Family
-Bell.
-
-### Language
-
-Enter the language code supported by the selected TTS service, such as `en-gb`
-or `en-us`.
-
-### Chime files
-
-Enter one media ID, local path, or URL per line:
-
-```text
-/local/media/chime.m4a
-```
-
-- One entry uses the same chime for every announcement.
-- Multiple entries select a chime randomly for each announcement.
-- An empty field disables chime playback.
-
-The Home Assistant host and each selected speaker must be able to access the
-configured media location. Use **Chime-to-speech delay** to allow the chime to
-finish before TTS begins.
-
-### Recurring TTS cache
-
-When **Cache recurring announcements** is enabled, scheduled weekly and routine
-bells request Home Assistant's TTS cache. Disable it when you want every
-recurring announcement to request newly generated speech.
-
-Manual tests and one-time events always bypass the cache.
-
-### Queue hold
-
-Queue hold adds a minimum speaker lock after the TTS request. Bells sharing a
-speaker wait for one another, while bells using separate speakers may run at
-the same time.
-
-## Use Week Preview
-
-**Week Preview** is a read-only summary of the active schedule. It combines
-weekly bells with expanded routine occurrences and groups them by weekday.
-
-Each row shows:
-
-- time
-- source schedule or routine
-- readable message template
-- selected speakers
-- enabled state
-- an Edit shortcut to the owning section
-
-Source colors distinguish independent weekly bells, individual routines, and
-one-time events. Use **Enabled only** to hide disabled recurring items.
-
-For a bell linked to a message set, Preview shows the message wrapper with the
-`%randomset%` placeholder. The message-set name remains available in the bell
-editor, where the link can be changed.
-
-A conflict warning appears when two bells share both the same time and at
-least one speaker. The warning helps with schedule review; speaker queuing still
-prevents both announcements from playing through that speaker simultaneously.
-
-## Move an existing schedule
-
-### Import JSON
-
-1. Export or prepare a JSON schedule.
-2. Select **Import disabled JSON**.
-3. Review the number of imported bells.
-4. Confirm the import.
-5. Check every date or weekday, time, message, and speaker.
-6. Test representative bells before enabling them.
-
-All imported bells are disabled automatically.
-
-### Convert weekly bells to a routine
-
-The Morning Routine conversion tool groups similar weekly bells into a named
-routine. Despite its default name and time window, the resulting routine is a
-normal editable routine.
-
-1. Open **Weekly Schedule** and select **Create Morning Routine**.
-2. Adjust the candidate time window if needed.
-3. Clear any weekly bells that should not be converted.
-4. Enter the routine name.
-5. Select **Preview conversion**.
-6. Review the proposed bells, weekdays, messages, speakers, and message sets.
-7. Confirm only when the preview is correct.
-
-The conversion replaces only the selected weekly bells. It does not change the
-main schedule switch or modify Home Assistant automations.
-
-If another automation system currently sends the same announcements, keep HA
-Family Bell paused while reviewing and testing the converted schedule. Disable
-the old announcements only when you are ready to switch systems, then observe
-at least one scheduled HA Family Bell announcement before deleting old rules.
-
-## Back up and restore schedule data
-
-Select **Export JSON** before a large edit, conversion, or upgrade. Store the
-download in a safe location.
-
-To restore standalone bells from an export, select **Import disabled JSON**.
-Imports add disabled weekly and one-time bells for review; they do not silently
-replace the complete stored schedule. The export also contains routines and
-message sets for backup and inspection, but the current import action does not
-restore those objects automatically.
-
-## Troubleshoot announcements
-
-### Nothing plays at the scheduled time
-
-Check the following in order:
-
-1. **Schedule active** is on.
-2. The weekly bell or one-time event is enabled.
-3. For routine bells, **Routine active** and the individual bell are enabled.
-4. The selected media players exist and are available.
-5. The Home Assistant system time zone is correct.
-6. The configured TTS service exists and supports the required service data.
-7. The bell's **Test** action succeeds.
-
-### The chime plays but speech does not
-
-Test the configured TTS service from Home Assistant **Developer Tools →
-Actions**. Confirm that the language code is supported and that the selected
-speaker accepts TTS playback.
-
-### Speech starts before the chime finishes
-
-Increase **Chime-to-speech delay**. The integration does not automatically know
-the exact duration of every media file.
-
-### A dynamic recurring message sounds stale
-
-Disable **Cache recurring announcements**, save the settings, and test again.
-One-time events and manual tests are already uncached.
-
-### A message set repeats unexpectedly
-
-Confirm that more than one variant is enabled. Manual tests and previews do not
-advance the live shuffle sequence, but scheduled bells linked to the same set
-share one sequence.
-
-### A one-time event is marked missed
-
-The event may have expired beyond the restart grace period, all selected
-speakers may have been unavailable, or the announcement action may have failed.
-Review Home Assistant logs for `ha_family_bell` entries.
-
-### Getting support
-
-When opening an issue, include:
-
-- HA Family Bell version
-- Home Assistant version
-- TTS integration and service name
-- the affected bell type
-- relevant `ha_family_bell` log entries with private URLs, entity names, and
-  message content removed
-
-Report issues at
-[github.com/mahlernim/ha-family-bell/issues](https://github.com/mahlernim/ha-family-bell/issues).
+Create a routine and add bells with weekdays, a time and speakers. Pausing the
+routine preserves individual enabled selections; **All on/All off** changes those
+selections. **Convert weekly bells to a routine** previews a proposed routine
+before replacing the selected standalone bells.
+
+Use %time% for Home Assistant's local time. For a linked message set, include
+%randomset%, for example:
+
+    It is %time%. %randomset%
+
+Enabled variants cycle without repeats. With at least two variants, the first
+message of a new cycle also differs from the previous one. **Play saved bell**
+does not consume the rotation. A message set cannot be deleted while bells still
+reference it. Advanced Home Assistant Jinja templates are supported.
+
+### TTS, chimes and activity
+
+Choose a TTS entity in **Announcement settings → Edit** to use tts.speak.
+The legacy service option retains services such as tts.google_translate_say.
+Leave language empty to use the provider's default; otherwise use a language code
+supported by that provider. See the
+[Home Assistant TTS documentation](https://www.home-assistant.io/integrations/tts/).
+
+Enter one chime media path or URL per line. Multiple entries are selected at
+random; an empty list disables chimes. Recurring TTS caching is enabled by default.
+Manual tests and one-time events request uncached speech.
+
+Recent activity shows queued/sending jobs and sent, partially sent, failed or
+cancelled outcomes per speaker. Accepted audio may continue after pausing.
+The default maximum playback wait is 180 seconds. Without usable player feedback,
+wait time is estimated from text length; long announcements or unrelated media
+cannot be synchronized perfectly.
+
+### Backup and restore
+
+1. In **Announcement settings**, choose **Download backup**.
+2. Choose **Restore backup** and select a JSON file.
+3. Choose **Add to current schedule** or **Replace current schedule**.
+4. Optionally select **Restore announcement settings**, then **Preview restore**.
+5. Review the counts and mode, then choose **Restore disabled**.
+6. Check TTS and speaker settings, then enable the desired routines and individual bells.
+
+Merge creates new IDs and remaps message-set links while preserving existing
+records. Replace removes the current schedule and message sets and pauses the
+master switch. Imported routines and all their bells start disabled.
+
+Backups do not include the master switch, history or shuffle progress. Older
+backups support schedule restoration; leave settings restoration unchecked if
+settings are absent. A backup from a different time zone must have its times
+converted before import. Files must be below 5 MB. If schedules change after
+preview, preview again before applying.
+
+### Troubleshooting
+
+- **No scheduled audio:** Check the master, routine and individual bell switches
+  and Home Assistant's time zone.
+- **Sent but silent:** Check speaker availability, TTS provider, language and
+  media URL reachability. Play saved bell requests real audio.
+- **Completed/missed one-time event:** Editing does not replay it. Use
+  Reschedule with a new future time.
+- **Interrupted restart/reload:** A one-time attempt with an uncertain outcome
+  is not replayed automatically. Check activity, speakers and HA logs before rescheduling.
+- **Old panel after an update:** Restart Home Assistant and refresh the browser.
+
+Report the integration version, HA version, error text and reproduction steps.
+Remove personal messages and backup contents before posting a public issue.
