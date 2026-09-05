@@ -28,6 +28,7 @@ from .schedule import BellValidationError
 from .websocket import async_register as async_register_websocket
 
 SERVICE_TEST = "test"
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, _config: dict) -> bool:

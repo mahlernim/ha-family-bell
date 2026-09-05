@@ -428,6 +428,28 @@ def test_creates_own_ids_and_rejects_duplicate_nested_ids(tmp_path):
     run_case(tmp_path, scenario)
 
 
+def test_failed_outcome_can_be_rescheduled_after_storage_recovers(tmp_path):
+    async def scenario(h):
+        bell = await h.bell(type="one_time", datetime=dt_util.utcnow().isoformat())
+        await h.manager.async_set_global_enabled(True)
+
+        async def fail_outcome(_call):
+            h.store.fail = True
+
+        h.audio_hook = fail_outcome
+        await h.fire(bell)
+        assert not h.manager._timers
+        h.store.fail = False
+        await h.manager.async_update(
+            bell["id"], {"datetime": (dt_util.utcnow() + timedelta(days=1)).isoformat()}
+        )
+        assert h.store.saved["pending_runs"] == []
+        assert "bell:" + bell["id"] in h.manager._timers
+        assert len(h.calls) == 1
+
+    run_case(tmp_path, scenario)
+
+
 def test_template_validation_and_test_does_not_consume_shuffle_bag(tmp_path):
     async def scenario(h):
         with pytest.raises(BellValidationError, match="Invalid message template"):

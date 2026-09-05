@@ -451,6 +451,19 @@ class FamilyBellManager:
                 raise BellValidationError(
                     "Choose a new future time to reschedule a completed event"
                 )
+            if (
+                collection == "bells"
+                and record_id in data["pending_runs"]
+                and item.get("datetime") != current.get("datetime")
+            ):
+                if (
+                    item["type"] == "one_time"
+                    and datetime.fromisoformat(item["datetime"]) <= dt_util.utcnow()
+                ):
+                    raise BellValidationError(
+                        "Choose a new future time to retry an interrupted event"
+                    )
+                data["pending_runs"].remove(record_id)
             data[collection][data[collection].index(current)] = item
             self._validate_data(data)
             if collection == "message_sets":
