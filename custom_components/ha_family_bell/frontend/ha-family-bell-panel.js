@@ -1,4 +1,4 @@
-import { DAYS, wallTime, tomorrow, eventDatetime, friendlyTemplate, previewEntries, translate } from "./panel-model.js?v=0.4.1";
+import { DAYS, wallTime, tomorrow, eventDatetime, friendlyTemplate, previewEntries, oneTimeSections, translate } from "./panel-model.js?v=0.4.1";
 
 const escape = (value = "") => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -133,7 +133,7 @@ export class HaFamilyBellPanel extends HTMLElement {
       return '<div class="toolbar">' + this.button("new", "addRoutine", this.ref("routine_meta"), true) + this.button("convert", "convert") + "</div>" +
         (this.data.routines.map(r => '<details class="routine" open><summary><strong>' + escape(r.name) + "</strong> · " + escape(this.t("routineCount", { count: r.steps.length })) + (!r.enabled ? ' <span class="badge">' + escape(this.t("paused")) + "</span>" : "") + '</summary><div class="toolbar">' + this.checkbox("routine-enabled", "enabled", r.enabled, this.ref("routine_meta", r.id)) + this.button("all-on", "allOn", this.ref("routine", r.id)) + this.button("all-off", "allOff", this.ref("routine", r.id)) + this.button("new", "add", this.ref("routine", r.id)) + this.button("edit", "edit", this.ref("routine_meta", r.id)) + this.button("delete", "remove", this.ref("routine_meta", r.id)) + '</div><p class="muted">' + escape(this.t("pauseRoutine")) + "</p>" + r.steps.map(s => this.bellCard(s, "routine", r.id)).join("") + "</details>").join("") || '<p class="empty">' + escape(this.t("noRoutines")) + "</p>");
     }
-    if (this.activeTab === "one_time") return '<div class="toolbar">' + this.button("new", "addEvent", this.ref("one_time"), true) + "</div>" + (this.data.bells.filter(b => b.type === "one_time").map(b => this.bellCard(b, "one_time")).join("") || '<p class="empty">' + escape(this.t("noBells")) + "</p>");
+    if (this.activeTab === "one_time") return this.oneTimeView();
     if (this.activeTab === "message_sets") return '<div class="toolbar">' + this.button("new", "addSet", this.ref("message_set"), true) + "</div>" + (this.data.message_sets.map(s => '<article class="card"><h2>' + escape(s.name) + '</h2><ul class="messages">' + s.messages.map(m => '<li class="' + (m.enabled ? "" : "disabled") + '">' + escape(m.text) + (m.enabled ? "" : " · " + escape(this.t("off"))) + "</li>").join("") + '</ul><div class="actions">' + this.button("edit", "edit", this.ref("message_set", s.id)) + this.button("delete", "remove", this.ref("message_set", s.id)) + "</div></article>").join("") || '<p class="empty">' + escape(this.t("noSets")) + "</p>");
     if (this.activeTab === "activity") {
       const records = [...(this.data.activity || []), ...[...(this.data.history || [])].reverse()];
@@ -147,6 +147,12 @@ export class HaFamilyBellPanel extends HTMLElement {
     const when = owner === "one_time" ? this.dateLabel(bell.datetime) : (bell.time?.slice(0, 5) || "") + (owner === "routine" ? " · " + bell.weekdays.map(d => this.t(DAYS[d])).join(", ") : "");
     const label = bell.name ? '<span class="bell-name">' + escape(bell.name) + "</span>" : "";
     return '<article class="bell-row' + (bell.enabled ? "" : " disabled") + '" data-kind="' + owner + '"><label class="row-toggle" title="' + escape(this.t("enabled")) + '"><input type="checkbox" name="bell-enabled" aria-label="' + escape(this.t("enabled")) + '"' + checked(bell.enabled) + " " + attrs + "></label><strong class=\"bell-when\">" + escape(when) + '</strong><div class="bell-content">' + label + '<span class="message">' + escape(friendlyTemplate(bell.message_source?.template)) + '</span></div><div class="speakers">' + this.speakerSummary(bell.speakers) + '</div><div class="actions">' + (owner === "one_time" ? '<span class="badge">' + escape(this.t(bell.status)) + "</span>" : "") + this.button("edit", "edit", attrs) + this.button("test", "test", attrs) + (owner === "weekly" ? this.button("copy", "copy", attrs) : owner === "one_time" ? this.button("duplicate", "duplicate", attrs) + (bell.status !== "pending" ? this.button("reschedule", "reschedule", attrs) : "") : "") + this.button("delete", "remove", attrs) + "</div></article>";
+  }
+  oneTimeView() {
+    const sections = oneTimeSections(this.data.bells);
+    const upcoming = '<section class="day schedule-group" data-section="upcoming"><div class="group-heading"><h2>' + escape(this.t("upcoming")) + '</h2><span>' + sections.upcoming.length + '</span></div>' + (sections.upcoming.map(bell => this.bellCard(bell, "one_time")).join("") || '<p class="muted compact-empty">' + escape(this.t("noUpcoming")) + "</p>") + "</section>";
+    const previous = sections.previous.length ? '<details class="day schedule-group event-history" data-section="previous"><summary class="group-heading"><h2>' + escape(this.t("previousEvents")) + '</h2><span>' + sections.previous.length + '</span></summary>' + sections.previous.map(bell => this.bellCard(bell, "one_time")).join("") + "</details>" : "";
+    return '<div class="toolbar">' + this.button("new", "addEvent", this.ref("one_time"), true) + (sections.finishedCount ? this.button("delete-finished", "deleteFinished") : "") + "</div>" + upcoming + previous;
   }
   previewView() {
     const speakers = Object.keys(this.hass.states).filter(id => id.startsWith("media_player."));
@@ -243,6 +249,12 @@ export class HaFamilyBellPanel extends HTMLElement {
         this.notice = this.t(result.status) + " · " + this.t("requestOnly"); this.render();
       } else if (action === "all-on" || action === "all-off") {
         await this.mutate("routine/patch_steps", { routine_id: id, enabled: action === "all-on" });
+      } else if (action === "delete-finished") {
+        const count = oneTimeSections(this.data.bells).finishedCount;
+        if (count && window.confirm(this.t("deleteFinishedQuestion", { count }))) {
+          const result = await this.mutate("delete_finished", { expected_revision: this.data.revision });
+          this.notice = this.t("deletedFinished", result); this.render();
+        }
       } else if (action === "delete" && window.confirm(this.t("deleteQuestion"))) {
         if (owner === "routine") {
           const routine = this.data.routines.find(r => r.id === id);

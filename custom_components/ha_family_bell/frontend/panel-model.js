@@ -24,6 +24,21 @@ export function eventDatetime(original, date, time, timezone) {
   return date + "T" + time;
 }
 
+export function oneTimeSections(bells, now = Date.now()) {
+  const events = bells.filter(bell => bell.type === "one_time");
+  const upcoming = events.filter(bell => bell.status === "pending"
+    && new Date(bell.datetime).getTime() >= now)
+    .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+  const previous = events.filter(bell => bell.status !== "pending"
+    || new Date(bell.datetime).getTime() < now)
+    .sort((a, b) => new Date(b.datetime) - new Date(a.datetime));
+  return {
+    upcoming,
+    previous,
+    finishedCount: previous.filter(bell => ["completed", "missed"].includes(bell.status)).length,
+  };
+}
+
 export function friendlyTemplate(value) {
   return String(value || "").replace(/{{\s*now\(\)\.strftime\((['"])%H:%M\1\)\s*}}/g, "%time%")
     .replace(/{{\s*random_message\s*}}/g, "%randomset%");
@@ -96,6 +111,11 @@ const TEXT = {
   edit: ["Edit", "수정"], remove: ["Delete", "삭제"], copy: ["Copy to days", "요일에 복사"],
   duplicate: ["Duplicate", "복제"], test: ["Play saved bell", "저장된 알림 재생"],
   reschedule: ["Reschedule", "다시 예약"], allOn: ["All on", "모두 사용"], allOff: ["All off", "모두 중지"],
+  upcoming: ["Upcoming", "예정된 알림"], previousEvents: ["Previous", "지난 알림"],
+  noUpcoming: ["No upcoming one-time events", "예정된 일회성 알림 없음"],
+  deleteFinished: ["Delete finished events", "끝난 알림 삭제"],
+  deleteFinishedQuestion: ["Delete {count} completed or missed one-time events?", "완료되었거나 실행되지 않은 일회성 알림 {count}개를 삭제할까요?"],
+  deletedFinished: ["Deleted {deleted} finished events", "끝난 알림 {deleted}개를 삭제했습니다"],
   convert: ["Convert weekly bells to a routine", "주간 알림을 루틴으로 묶기"],
   noBells: ["No bells", "알림 없음"], noRoutines: ["Add a routine to group related bells.", "관련 알림을 묶을 루틴을 추가하세요."],
   noSets: ["Add a message set to rotate messages.", "메시지 모음을 만들어 여러 문구를 번갈아 사용하세요."],

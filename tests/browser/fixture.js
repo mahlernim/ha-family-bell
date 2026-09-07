@@ -46,6 +46,15 @@ const hass = {
     if (command === "conversion/preview") return { routine: window.example.routines[0], revision: window.example.revision };
     if (command === "restore/commit" || command === "conversion/commit") return {};
     if (command === "test") return { status: "sent" };
+    if (command === "delete_finished") {
+      if (message.expected_revision !== window.example.revision) throw Error("This item changed elsewhere.");
+      const before = window.example.bells.length;
+      window.example.bells = window.example.bells.filter(bell => bell.type !== "one_time" || !["completed", "missed"].includes(bell.status));
+      const deleted = before - window.example.bells.length;
+      window.example.revision++;
+      window.emit();
+      return { deleted };
+    }
     if (command === "set_enabled") window.example.global_enabled = message.enabled;
     if (command === "routine/patch_steps") {
       const routine = window.example.routines.find(r => r.id === message.routine_id);

@@ -505,6 +505,21 @@ class FamilyBellManager:
     async def async_delete(self, bell_id, expected_revision=None):
         await self._delete("bells", bell_id, expected_revision)
 
+    async def async_delete_finished_events(self, expected_revision: int) -> dict:
+        async with self._change() as data:
+            self._check_revision(data, expected_revision)
+            deleted_ids = {
+                bell["id"]
+                for bell in data["bells"]
+                if bell["type"] == "one_time" and bell["status"] in {"completed", "missed"}
+            }
+            data["bells"] = [bell for bell in data["bells"] if bell["id"] not in deleted_ids]
+            data["pending_runs"] = [
+                bell_id for bell_id in data["pending_runs"] if bell_id not in deleted_ids
+            ]
+            self._validate_data(data)
+        return {"deleted": len(deleted_ids)}
+
     async def async_delete_routine(self, routine_id, expected_revision=None):
         await self._delete("routines", routine_id, expected_revision)
 

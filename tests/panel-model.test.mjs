@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { wallTime, eventDatetime, tomorrow, previewEntries, translate } from "../custom_components/ha_family_bell/frontend/panel-model.js";
+import { wallTime, eventDatetime, tomorrow, previewEntries, oneTimeSections, translate } from "../custom_components/ha_family_bell/frontend/panel-model.js";
 
 test("one-time editor uses HA zone and preserves an unchanged second-fold instant", () => {
   const original = "2026-11-01T01:30:00-05:00";
@@ -16,6 +16,19 @@ const source = { kind: "template", template: "Hello" };
 const bell = { id: "weekly", type: "weekly", weekday: 0, time: "08:00:00", enabled: true, message_source: source, speakers: ["media_player.example"] };
 const event = { ...bell, id: "event", type: "one_time", status: "pending", datetime: "2026-09-07T08:00:00+09:00" };
 const data = { global_enabled: true, timezone: "Asia/Seoul", bells: [bell, event], routine_occurrences: [] };
+
+test("one-time events put nearest upcoming first and newest previous first", () => {
+  const events = [
+    { ...event, id: "later", datetime: "2026-09-09T08:00:00+09:00" },
+    { ...event, id: "completed", status: "completed", datetime: "2026-09-06T08:00:00+09:00" },
+    { ...event, id: "next", datetime: "2026-09-08T08:00:00+09:00" },
+    { ...event, id: "missed", status: "missed", datetime: "2026-09-07T08:00:00+09:00" },
+  ];
+  const sections = oneTimeSections(events, Date.parse("2026-09-07T12:00:00Z"));
+  assert.deepEqual(sections.upcoming.map(item => item.id), ["next", "later"]);
+  assert.deepEqual(sections.previous.map(item => item.id), ["missed", "completed"]);
+  assert.equal(sections.finishedCount, 2);
+});
 test("preview includes active one-time conflicts on the same HA local minute", () => {
   const result = previewEntries(data, Date.parse("2026-09-06T20:00:00Z"));
   assert.equal(result.recurring[0].conflict, true);

@@ -48,6 +48,32 @@ def test_websocket_update_validates_protocol_and_preserves_record_revision(tmp_p
     asyncio.run(run())
 
 
+def test_websocket_delete_finished_uses_snapshot_revision(tmp_path):
+    async def run():
+        hass = HomeAssistant(str(tmp_path))
+        manager = SimpleNamespace(
+            async_delete_finished_events=AsyncMock(return_value={"deleted": 2})
+        )
+        hass.data[DOMAIN] = {DATA_MANAGER: manager}
+        connection = SimpleNamespace(
+            user=SimpleNamespace(is_admin=True), send_result=Mock(), send_error=Mock()
+        )
+        payload = websocket.ws_delete_finished._ws_schema(
+            {
+                "id": 8,
+                "type": "ha_family_bell/delete_finished",
+                "expected_revision": 4,
+            }
+        )
+        websocket.ws_delete_finished(hass, connection, payload)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        manager.async_delete_finished_events.assert_awaited_once_with(4)
+        connection.send_result.assert_called_once_with(8, {"deleted": 2})
+        connection.send_error.assert_not_called()
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize(
     "error,code",
     [

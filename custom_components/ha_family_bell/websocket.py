@@ -104,6 +104,22 @@ async def ws_delete(hass, connection, msg) -> None:
 
 @websocket_api.websocket_command(
     {
+        vol.Required("type"): "ha_family_bell/delete_finished",
+        vol.Required("expected_revision"): int,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_delete_finished(hass, connection, msg) -> None:
+    await _run(
+        connection,
+        msg,
+        lambda: _manager(hass).async_delete_finished_events(msg["expected_revision"]),
+    )
+
+
+@websocket_api.websocket_command(
+    {
         vol.Required("type"): "ha_family_bell/copy",
         vol.Required("bell_id"): str,
         vol.Required("weekdays"): [vol.All(int, vol.Range(min=0, max=6))],
@@ -381,6 +397,7 @@ COMMANDS = (
     ws_create,
     ws_update,
     ws_delete,
+    ws_delete_finished,
     ws_copy,
     ws_import,
     ws_test,

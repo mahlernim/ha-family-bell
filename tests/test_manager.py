@@ -18,6 +18,7 @@ class MemoryStore:
     def __init__(self, data=None):
         self.saved = deepcopy(data)
         self.fail = False
+        self.save_count = 0
         self.entered = asyncio.Event()
         self.release = None
 
@@ -25,6 +26,7 @@ class MemoryStore:
         return deepcopy(self.saved)
 
     async def async_save(self, data):
+        self.save_count += 1
         self.entered.set()
         if self.release:
             await self.release.wait()
@@ -380,6 +382,59 @@ def test_one_time_remains_completed_until_explicit_future_reschedule(tmp_path):
             {"status": "pending", "datetime": (dt_util.utcnow() + timedelta(days=2)).isoformat()},
         )
         assert rescheduled["status"] == "pending"
+
+    run_case(tmp_path, scenario)
+
+
+def test_finished_one_time_events_are_deleted_in_one_revision_checked_write(tmp_path):
+    async def scenario(h):
+        weekly = await h.bell()
+        upcoming = await h.bell(
+            type="one_time", datetime=(dt_util.utcnow() + timedelta(days=1)).isoformat()
+        )
+        completed = await h.bell(
+            type="one_time",
+            datetime=(dt_util.utcnow() - timedelta(days=2)).isoformat(),
+            status="completed",
+        )
+        missed = await h.bell(
+            type="one_time",
+            datetime=(dt_util.utcnow() - timedelta(days=1)).isoformat(),
+            status="missed",
+        )
+        revision = h.manager.snapshot()["revision"]
+        saves = h.store.save_count
+
+        result = await h.manager.async_delete_finished_events(revision)
+
+        assert result == {"deleted": 2}
+        assert h.store.save_count == saves + 1
+        assert {item["id"] for item in h.manager.snapshot()["bells"]} == {
+            weekly["id"],
+            upcoming["id"],
+        }
+        with pytest.raises(BellValidationError, match="changed elsewhere"):
+            await h.manager.async_delete_finished_events(revision)
+        assert completed["id"] not in h.store.saved["pending_runs"]
+        assert missed["id"] not in h.store.saved["pending_runs"]
+
+    run_case(tmp_path, scenario)
+
+
+def test_failed_finished_event_cleanup_keeps_every_record(tmp_path):
+    async def scenario(h):
+        await h.bell(
+            type="one_time",
+            datetime=(dt_util.utcnow() - timedelta(days=1)).isoformat(),
+            status="completed",
+        )
+        before = h.manager.snapshot()
+        h.store.fail = True
+
+        with pytest.raises(OSError):
+            await h.manager.async_delete_finished_events(before["revision"])
+
+        assert h.manager.snapshot() == before
 
     run_case(tmp_path, scenario)
 
