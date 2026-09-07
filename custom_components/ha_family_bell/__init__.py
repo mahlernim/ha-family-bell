@@ -79,7 +79,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             webcomponent_name=PANEL_WEB_COMPONENT,
             sidebar_title="HA Family Bell",
             sidebar_icon="mdi:bell-ring",
-            module_url=f"{STATIC_URL}/ha-family-bell-panel.js?v=0.4.0",
+            module_url=f"{STATIC_URL}/ha-family-bell-panel.js?v=0.4.1",
             require_admin=True,
             config_panel_domain=DOMAIN,
         )

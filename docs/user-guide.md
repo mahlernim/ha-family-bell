@@ -9,12 +9,18 @@
 **주간 미리보기**에서 주간 알림, 루틴과 앞으로 7일 안의 일회성 알림을 함께
 확인하세요. **오늘**, **사용 중인 알림만**, **빈 요일 숨기기**, 메시지 검색,
 스피커 필터를 조합할 수 있습니다. 같은 시간에 같은 스피커를 사용하는 활성 알림에는
-스피커 겹침 표시가 나타납니다. 중지된 알림은 겹침 계산에서 제외됩니다.
+스피커 겹침 표시가 나타납니다. 중지된 알림은 겹침 계산에서 제외됩니다. 간결한 행과
+요일별 개수 표시를 사용해 많은 알림을 한 화면에서 확인할 수 있습니다.
 
 각 행의 **수정**은 해당 알림을 바로 엽니다. 다른 화면에서 상태가 바뀌어도 편집 중인
 내용은 유지됩니다. 같은 알림을 다른 관리자가 먼저 저장했다면 변경 안내가 표시되고
 오래된 내용의 저장을 거부합니다. 필요한 초안을 따로 보관한 뒤 **저장된 내용 불러오기**를
 선택하세요. 저장 오류가 나면 편집창 안의 오류를 확인하고 다시 시도하세요.
+
+알림을 저장하면 선택한 스피커가 현재 브라우저에 기억됩니다. 새 주간 알림,
+일회성 알림, 루틴 알림을 만들 때 해당 스피커가 자동으로 선택됩니다. 편집을 취소하거나
+저장에 실패하면 기억된 선택은 바뀌지 않습니다. 다른 브라우저나 기기에서는 처음 한 번
+스피커를 선택해 저장해야 합니다.
 
 <img src="images/panel-editor-mobile.png" alt="가상 일정의 모바일 편집창 예시" width="330">
 
@@ -90,12 +96,18 @@ HA와 다른 시간대의 백업은 시간 변환 후 가져와야 하며, 그�
 **Week preview** combines recurring bells and one-time events in the next seven
 days. Combine Today, Enabled only, Hide empty days, search and speaker filters.
 Shared-speaker warnings apply to enabled bells scheduled for the same minute.
-Paused bells do not create conflict warnings.
+Paused bells do not create conflict warnings. Compact rows and per-day counts keep
+larger schedules scannable.
 
 **Edit** opens the exact bell or routine step. Background updates preserve the
 draft. If someone else changes the same record, save is rejected with a conflict
 message. Keep any draft text you need, then choose **Reload saved version**.
 Save errors stay in the dialog so you can correct the problem and try again.
+
+After a bell is saved, its selected speakers are remembered in the current browser.
+They are preselected when creating a weekly bell, one-time event or routine step.
+Cancelling an edit or encountering a failed save does not change the remembered
+choice. Each browser or device remembers its own selection.
 
 ### Routines and messages
 

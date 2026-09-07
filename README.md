@@ -36,8 +36,10 @@ HA Family Bell은 Home Assistant의 스피커로 정해진 시간에 안내 방�
 
 ### 주요 기능
 
+- 많은 알림을 빠르게 훑을 수 있는 간결한 행과 요일별 개수 표시
 - 오늘 보기, 검색, 스피커 필터와 빈 요일 숨기기를 제공하는 주간 미리보기
 - 별도 편집창, 변경 충돌 안내, 저장 실패 시 초안 유지
+- 마지막으로 저장한 스피커를 새 알림에서 자동 선택하는 브라우저별 기본값
 - 개별 알림의 사용 설정을 유지하는 루틴 일시 중지와 전체 사용/중지
 - Home Assistant 시간대 기준 일회성 알림과 완료된 알림의 명시적 다시 예약
 - 반복 없이 순환하는 메시지 모음, %time% 및 %randomset% 자리표시자
@@ -65,13 +67,16 @@ media_player 엔티티가 필요합니다. Family Bell 자체는 별도 계정�
 설정 폴더의 custom_components 아래로 복사하고 재시작한 뒤 통합 구성요소를 추가하세요.
 이 저장소는 HACS 사용자 지정 저장소로 설치할 수 있습니다.
 
-### v0.4.0으로 업데이트
+### v0.4.1로 업데이트
 
 HACS에서 업데이트한 뒤 Home Assistant를 재시작하고 브라우저 패널을 새로고침하세요.
-기존 일정, 메시지 모음, TTS 설정과 엔티티의 고유 ID는 유지됩니다. 편집은 각 알림의
-**수정** 버튼으로 엽니다. 기존 TTS 서비스를 계속 사용할 수 있으며, 제공자를
-선택하면 tts.speak를 사용합니다.
+기존 일정, 메시지 모음, TTS 설정과 엔티티의 고유 ID는 유지됩니다. 일정과 미리보기는
+더 간결한 행으로 표시됩니다. 알림을 저장하면 선택한 스피커가 해당 브라우저에 기억되어
+다음 주간 알림, 일회성 알림, 루틴 알림을 추가할 때 자동으로 선택됩니다. 저장에 실패하거나
+편집을 취소하면 기억된 스피커는 바뀌지 않습니다. 브라우저와 기기마다 선택을 따로 기억합니다.
 
+0.3.x에서 업데이트하는 경우 편집은 각 알림의 **수정** 버튼으로 엽니다. 기존 TTS
+서비스를 계속 사용할 수 있으며, 제공자를 선택하면 tts.speak를 사용합니다.
 완료된 일회성 알림을 수정해도 다시 실행되지 않습니다. 새 미래 시간을 지정하는
 **다시 예약**을 사용하세요. 새 복원 기능은 기존 백업의 루틴과 메시지 모음도
 복원합니다. 가져온 알림과 루틴은 모두 중지 상태이며, **교체** 모드는 전체 일정도
@@ -105,7 +110,8 @@ HA Family Bell schedules spoken announcements through Home Assistant media playe
 Use standalone weekly bells, reusable routines and one-time events without creating
 a separate automation for every announcement.
 
-The panel includes a combined week preview with Today, search and speaker filters;
+The panel includes compact schedule rows and a combined week preview with Today,
+search and speaker filters;
 draft-preserving editors with conflict detection; rotating message sets; routine
 pause controls that preserve individual selections; modern and legacy TTS support;
 per-speaker activity results; and complete backup/restore previews.
@@ -128,13 +134,17 @@ bells must both be enabled to run. For manual installation, copy
 custom_components/ha_family_bell into your configuration's custom_components
 directory, restart, and add the integration. HACS installation uses a custom repository.
 
-### Upgrade to v0.4.0
+### Upgrade to v0.4.1
 
 Update in HACS, restart Home Assistant and refresh the panel. Existing schedules,
-message sets, announcement settings and entity unique IDs are retained. Open
-individual **Edit** dialogs to make changes. Existing legacy TTS services remain
-supported; choosing a provider uses tts.speak.
+message sets, announcement settings and entity unique IDs are retained. Schedules
+and previews now use compact rows. After a bell is saved, its selected speakers are
+remembered in that browser and preselected for new weekly bells, one-time events and
+routine steps. Cancelled edits and failed saves do not change the remembered choice.
+Each browser or device keeps its own choice.
 
+When upgrading from 0.3.x, open individual **Edit** dialogs to make changes. Existing
+legacy TTS services remain supported; choosing a provider uses tts.speak.
 Editing a completed one-time event does not replay it. Use **Reschedule** and choose
 a new future time. Restore now includes routines and linked message sets from older
 backups. Imported bells and routines start disabled; replacing a schedule also
