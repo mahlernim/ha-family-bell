@@ -112,3 +112,62 @@ test("mobile Korean controls remain labelled and fit the viewport", async ({ pag
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(await dialog(page).evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
 });
+
+test("schedule and preview use compact rows without losing editor access", async ({ page }) => {
+  await tab(page, "weekly");
+  const scheduleRow = page.locator(".bell-row").first();
+  await expect(scheduleRow).toBeVisible();
+  expect((await scheduleRow.boundingBox()).height).toBeLessThanOrEqual(46);
+  await scheduleRow.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(dialog(page).getByRole("button", { name: "Save", exact: true })).toBeVisible();
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await tab(page, "preview");
+  const previewRow = page.locator(".preview-row").first();
+  await expect(previewRow).toBeVisible();
+  expect((await previewRow.boundingBox()).height).toBeLessThanOrEqual(40);
+});
+
+test("new bells reuse speakers only after a successful save", async ({ page }) => {
+  await tab(page, "weekly");
+  await page.getByRole("button", { name: "Add bell", exact: true }).click();
+  await dialog(page).locator('input[name="speakers"][value="media_player.hall"]').check();
+  page.once("dialog", prompt => prompt.accept());
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await page.getByRole("button", { name: "Add bell", exact: true }).click();
+  await expect(dialog(page).locator('input[name="speakers"][value="media_player.hall"]')).not.toBeChecked();
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await dialog(page).locator('input[name="speakers"][value="media_player.study"]').uncheck();
+  await dialog(page).locator('input[name="speakers"][value="media_player.hall"]').check();
+  await dialog(page).getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Add bell", exact: true }).click();
+  await expect(dialog(page).locator('input[name="speakers"][value="media_player.hall"]')).toBeChecked();
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await dialog(page).locator('input[name="speakers"][value="media_player.hall"]').uncheck();
+  await dialog(page).locator('input[name="speakers"][value="media_player.study"]').check();
+  await page.evaluate(() => { window.failNext = true; });
+  await dialog(page).getByRole("button", { name: "Save", exact: true }).click();
+  await expect(dialog(page).getByRole("alert")).toContainText("Unable to save");
+  page.once("dialog", prompt => prompt.accept());
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Add bell", exact: true }).click();
+  await expect(dialog(page).locator('input[name="speakers"][value="media_player.hall"]')).toBeChecked();
+  await expect(dialog(page).locator('input[name="speakers"][value="media_player.study"]')).not.toBeChecked();
+});
+
+test("remembered speakers apply to one-time events and routine steps", async ({ page }) => {
+  await page.evaluate(() => localStorage.setItem("ha-family-bell:last-speakers", '["media_player.study"]'));
+  await tab(page, "one_time");
+  await page.getByRole("button", { name: "Add event", exact: true }).click();
+  await expect(dialog(page).locator('input[name="speakers"][value="media_player.study"]')).toBeChecked();
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await tab(page, "routines");
+  await page.locator('[data-action="new"][data-owner="routine"]').click();
+  await expect(dialog(page).locator('input[name="speakers"][value="media_player.study"]')).toBeChecked();
+});

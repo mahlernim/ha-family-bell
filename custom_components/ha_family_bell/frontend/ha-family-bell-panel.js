@@ -1,8 +1,9 @@
-import { DAYS, wallTime, tomorrow, eventDatetime, friendlyTemplate, previewEntries, translate } from "./panel-model.js?v=0.4.0";
+import { DAYS, wallTime, tomorrow, eventDatetime, friendlyTemplate, previewEntries, translate } from "./panel-model.js?v=0.4.1";
 
 const escape = (value = "") => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const clone = value => JSON.parse(JSON.stringify(value));
 const checked = value => value ? " checked" : "";
+const LAST_SPEAKERS_KEY = "ha-family-bell:last-speakers";
 
 export class HaFamilyBellPanel extends HTMLElement {
   constructor() {
@@ -15,7 +16,7 @@ export class HaFamilyBellPanel extends HTMLElement {
     this._busy = false;
     this.error = "";
     this.notice = "";
-    this.shadowRoot.innerHTML = '<link rel="stylesheet" href="' + new URL("./panel.css?v=0.4.0", import.meta.url).href + '"><main id="app"></main><dialog id="editor"></dialog>';
+    this.shadowRoot.innerHTML = '<link rel="stylesheet" href="' + new URL("./panel.css?v=0.4.1", import.meta.url).href + '"><main id="app"></main><dialog id="editor"></dialog>';
     this.shadowRoot.addEventListener("click", event => this.handleClick(event));
     this.shadowRoot.addEventListener("change", event => this.handleChange(event));
     this.shadowRoot.addEventListener("input", event => this.handleInput(event));
@@ -96,6 +97,16 @@ export class HaFamilyBellPanel extends HTMLElement {
   }
   speakerName(id) { return this.hass.states[id]?.attributes?.friendly_name || id; }
   available(id) { return this.hass.states[id] && !["unavailable", "unknown"].includes(this.hass.states[id].state); }
+  rememberedSpeakers() {
+    try {
+      const ids = JSON.parse(localStorage.getItem(LAST_SPEAKERS_KEY) || "[]");
+      return Array.isArray(ids) ? ids.filter(id => typeof id === "string" && id.startsWith("media_player.")) : [];
+    } catch (_error) { return []; }
+  }
+  rememberSpeakers(ids) {
+    if (!ids.length) return;
+    try { localStorage.setItem(LAST_SPEAKERS_KEY, JSON.stringify([...new Set(ids)])); } catch (_error) { /* Browser storage can be unavailable. */ }
+  }
   speakerSummary(ids = []) {
     return ids.map(id => '<span class="speaker' + (this.available(id) ? "" : " warning") + '" title="' + escape(id) + '">' + escape(this.speakerName(id)) + (this.available(id) ? "" : " · " + escape(this.t(this.hass.states[id] ? "unavailable" : "missing"))) + "</span>").join("");
   }
@@ -116,7 +127,7 @@ export class HaFamilyBellPanel extends HTMLElement {
     if (this.activeTab === "preview") return this.previewView();
     if (this.activeTab === "weekly") {
       return '<div class="toolbar">' + this.button("new", "add", this.ref("weekly"), true) + this.button("convert", "convert") + "</div>" +
-        DAYS.map((day, index) => { const bells = this.data.bells.filter(b => b.type === "weekly" && b.weekday === index); return '<section class="day"><h2>' + escape(this.t(day)) + "</h2>" + (bells.map(b => this.bellCard(b, "weekly")).join("") || '<p class="muted">' + escape(this.t("noBells")) + "</p>") + "</section>"; }).join("");
+        DAYS.map((day, index) => { const bells = this.data.bells.filter(b => b.type === "weekly" && b.weekday === index); return '<section class="day schedule-group"><div class="group-heading"><h2>' + escape(this.t(day)) + '</h2><span>' + bells.length + '</span></div>' + (bells.map(b => this.bellCard(b, "weekly")).join("") || '<p class="muted compact-empty">' + escape(this.t("noBells")) + "</p>") + "</section>"; }).join("");
     }
     if (this.activeTab === "routines") {
       return '<div class="toolbar">' + this.button("new", "addRoutine", this.ref("routine_meta"), true) + this.button("convert", "convert") + "</div>" +
@@ -134,7 +145,8 @@ export class HaFamilyBellPanel extends HTMLElement {
   bellCard(bell, owner, routineId = "") {
     const attrs = this.ref(owner, routineId || bell.id, routineId ? bell.id : "");
     const when = owner === "one_time" ? this.dateLabel(bell.datetime) : (bell.time?.slice(0, 5) || "") + (owner === "routine" ? " · " + bell.weekdays.map(d => this.t(DAYS[d])).join(", ") : "");
-    return '<article class="card' + (bell.enabled ? "" : " disabled") + '"><div class="row"><strong>' + escape(when) + '</strong>' + this.checkbox("bell-enabled", "enabled", bell.enabled, attrs) + '</div>' + (bell.name ? "<h3>" + escape(bell.name) + "</h3>" : "") + "<p>" + escape(friendlyTemplate(bell.message_source?.template)) + '</p><div class="speakers">' + this.speakerSummary(bell.speakers) + '</div><div class="actions">' + (owner === "one_time" ? '<span class="badge">' + escape(this.t(bell.status)) + "</span>" : "") + this.button("edit", "edit", attrs) + this.button("test", "test", attrs) + (owner === "weekly" ? this.button("copy", "copy", attrs) : owner === "one_time" ? this.button("duplicate", "duplicate", attrs) + (bell.status !== "pending" ? this.button("reschedule", "reschedule", attrs) : "") : "") + this.button("delete", "remove", attrs) + "</div></article>";
+    const label = bell.name ? '<span class="bell-name">' + escape(bell.name) + "</span>" : "";
+    return '<article class="bell-row' + (bell.enabled ? "" : " disabled") + '" data-kind="' + owner + '"><label class="row-toggle" title="' + escape(this.t("enabled")) + '"><input type="checkbox" name="bell-enabled" aria-label="' + escape(this.t("enabled")) + '"' + checked(bell.enabled) + " " + attrs + "></label><strong class=\"bell-when\">" + escape(when) + '</strong><div class="bell-content">' + label + '<span class="message">' + escape(friendlyTemplate(bell.message_source?.template)) + '</span></div><div class="speakers">' + this.speakerSummary(bell.speakers) + '</div><div class="actions">' + (owner === "one_time" ? '<span class="badge">' + escape(this.t(bell.status)) + "</span>" : "") + this.button("edit", "edit", attrs) + this.button("test", "test", attrs) + (owner === "weekly" ? this.button("copy", "copy", attrs) : owner === "one_time" ? this.button("duplicate", "duplicate", attrs) + (bell.status !== "pending" ? this.button("reschedule", "reschedule", attrs) : "") : "") + this.button("delete", "remove", attrs) + "</div></article>";
   }
   previewView() {
     const speakers = Object.keys(this.hass.states).filter(id => id.startsWith("media_player."));
@@ -154,7 +166,7 @@ export class HaFamilyBellPanel extends HTMLElement {
       entries.push(...rows.events.filter(row => row.date === dateKey && matches(row)));
       entries.sort((a, b) => a.time.localeCompare(b.time));
       if (!entries.length && this.filters.hideEmpty) return "";
-      return '<section class="day"><h2>' + escape(this.t(day)) + (index === weekday ? ' <span class="badge">' + escape(this.t("today")) + "</span>" : "") + "</h2>" + (entries.map(rowHTML).join("") || '<p class="muted">' + escape(this.t("noBells")) + "</p>") + "</section>";
+      return '<section class="day preview-day"><div class="group-heading"><h2>' + escape(this.t(day)) + (index === weekday ? ' <span class="badge">' + escape(this.t("today")) + "</span>" : "") + '</h2><span>' + entries.length + '</span></div>' + (entries.map(rowHTML).join("") || '<p class="muted compact-empty">' + escape(this.t("noBells")) + "</p>") + "</section>";
     }).join("");
   }
   sourceColor(key = "") {
@@ -284,6 +296,7 @@ export class HaFamilyBellPanel extends HTMLElement {
     const base = this.currentRecord(reference);
     let item = clone(owner === "settings" ? this.data.settings : owner === "routine" ? base?.steps.find(s => s.id === step) || {} : base || {});
     if (action === "new" && owner !== "routine") item = {};
+    if (action === "new" && ["weekly", "one_time", "routine"].includes(owner)) item.speakers = this.rememberedSpeakers();
     const duplicate = action === "duplicate";
     const rearm = action === "reschedule";
     this.editor = { owner, id: duplicate || action === "new" && owner !== "routine" ? "" : id, step, action, item, base: base ? clone(base) : null, revision: base?.revision, timezone: this.data.timezone, dirty: false, generation: 0, rearm };
@@ -315,6 +328,7 @@ export class HaFamilyBellPanel extends HTMLElement {
   async saveEditor(form) {
     if (this._busy || !this.editor || !form.reportValidity()) return;
     const editor = this.editor;
+    let speakersToRemember = [];
     const value = name => form.elements.namedItem(name)?.value || "";
     const isChecked = name => !!form.elements.namedItem(name)?.checked;
     const selections = name => [...form.querySelectorAll('input[name="' + name + '"]:checked')].map(input => input.value);
@@ -342,6 +356,7 @@ export class HaFamilyBellPanel extends HTMLElement {
           request = editor.id ? { set_id: editor.id, changes, expected_revision: editor.revision } : { message_set: changes };
         } else {
           const speakers = selections("speakers"); if (!speakers.length) throw Error(this.t("noSpeaker"));
+          speakersToRemember = speakers;
           const source = { kind: value("kind"), template: value("template") };
           if (source.kind === "message_set") source.set_id = value("set_id");
           changes = { enabled: isChecked("enabled"), message_source: source, speakers };
@@ -362,6 +377,7 @@ export class HaFamilyBellPanel extends HTMLElement {
         }
         this.setBusy(true);
         await this.mutate(command, request);
+        this.rememberSpeakers(speakersToRemember);
       }
       this.setBusy(false); this.closeEditor(true); this.notice = this.t("saved"); this.render();
     } catch (error) { this.editorError(error); }
