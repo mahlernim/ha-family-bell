@@ -36,6 +36,7 @@ test("successful edit sends a record revision and closes the editor", async ({ p
 
 test("completed event edits preserve HA time and do not rearm in another browser zone", async ({ page }) => {
   await tab(page, "one_time");
+  await page.locator('[data-section="previous"] summary').click();
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(dialog(page).locator('input[name="time"]')).toHaveValue("08:30");
   await dialog(page).locator('textarea[name="template"]').fill("Revised event");
@@ -170,4 +171,42 @@ test("remembered speakers apply to one-time events and routine steps", async ({ 
   await tab(page, "routines");
   await page.locator('[data-action="new"][data-owner="routine"]').click();
   await expect(dialog(page).locator('input[name="speakers"][value="media_player.study"]')).toBeChecked();
+});
+
+test("one-time events separate upcoming from previous and delete finished atomically", async ({ page }) => {
+  await page.evaluate(() => {
+    const source = window.example.bells[0].message_source;
+    const after = days => new Date(Date.now() + days * 86400000).toISOString();
+    window.example.bells.push(
+      { id: "later", revision: 1, name: "Later event", type: "one_time", status: "pending", datetime: after(2), enabled: true, message_source: source, speakers: ["media_player.study"] },
+      { id: "next", revision: 1, name: "Next event", type: "one_time", status: "pending", datetime: after(1), enabled: true, message_source: source, speakers: ["media_player.study"] },
+      { id: "missed", revision: 1, name: "Missed event", type: "one_time", status: "missed", datetime: after(-1), enabled: true, message_source: source, speakers: ["media_player.study"] },
+    );
+    window.emit();
+  });
+  await tab(page, "one_time");
+
+  const upcoming = page.locator('[data-section="upcoming"]');
+  await expect(upcoming.locator(".bell-row")).toHaveCount(2);
+  await expect(upcoming.locator(".bell-row").nth(0)).toContainText("Next event");
+  await expect(upcoming.locator(".bell-row").nth(1)).toContainText("Later event");
+
+  const previous = page.locator('[data-section="previous"]');
+  await expect(previous).not.toHaveAttribute("open", "");
+  await previous.locator("summary").click();
+  await expect(previous.locator(".bell-row")).toHaveCount(2);
+
+  page.once("dialog", prompt => prompt.dismiss());
+  await page.getByRole("button", { name: "Delete finished events", exact: true }).click();
+  await expect(previous.locator(".bell-row")).toHaveCount(2);
+  expect(await page.evaluate(() => window.requests.some(r => r.type === "ha_family_bell/delete_finished"))).toBe(false);
+
+  page.once("dialog", prompt => prompt.accept());
+  await page.getByRole("button", { name: "Delete finished events", exact: true }).click();
+  await expect(previous).toHaveCount(0);
+  expect(await page.evaluate(() => window.requests.find(r => r.type === "ha_family_bell/delete_finished"))).toEqual({
+    type: "ha_family_bell/delete_finished",
+    expected_revision: 1,
+  });
+  expect(await page.evaluate(() => window.example.bells.filter(b => b.type === "one_time").map(b => b.id).sort())).toEqual(["later", "next"]);
 });

@@ -26,6 +26,8 @@ nav button[aria-current=page] { color: var(--primary-color, #287caf); border-bot
 .group-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 39px; padding: 7px 11px; border-bottom: 1px solid var(--divider-color, #dce2ea); }
 .group-heading h2 { margin: 0; font-size: 16px; }
 .group-heading > span { color: var(--secondary-text-color, #627186); font-size: 11px; }
+.event-history > summary { cursor: pointer; }
+.event-history > summary::marker { color: var(--secondary-text-color, #627186); }
 .compact-empty { margin: 0; padding: 9px 12px; }
 .card .row { justify-content: space-between; }
 .card .actions { margin-top: 14px; }
