@@ -375,6 +375,10 @@ def test_one_time_remains_completed_until_explicit_future_reschedule(tmp_path):
             {"message": "Updated", "message_source": {"kind": "template", "template": "Updated"}},
         )
         assert saved["status"] == "completed"
+        await h.manager.async_update(bell["id"], {"enabled": False})
+        enabled_again = await h.manager.async_update(bell["id"], {"enabled": True})
+        assert enabled_again["status"] == "completed"
+        assert "bell:" + bell["id"] not in h.manager._timers
         with pytest.raises(BellValidationError, match="new future time"):
             await h.manager.async_update(bell["id"], {"status": "pending"})
         rescheduled = await h.manager.async_update(
@@ -464,6 +468,259 @@ def test_one_time_claim_blocks_replay_after_failed_outcome_save_and_restart(tmp_
     run_case(tmp_path, scenario)
 
 
+def test_one_time_incidental_edit_after_sent_settles_captured_occurrence(tmp_path):
+    async def scenario(h):
+        bell = await h.bell(type="one_time", datetime=dt_util.utcnow().isoformat())
+        await h.manager.async_set_global_enabled(True)
+        entered = asyncio.Event()
+
+        async def wait(*_args):
+            entered.set()
+            await asyncio.Event().wait()
+
+        h.manager._wait_playback = wait
+        job = asyncio.create_task(h.fire(bell))
+        await entered.wait()
+        await h.manager.async_update(
+            bell["id"],
+            {"message": "Edited", "message_source": {"kind": "template", "template": "Edited"}},
+        )
+        await asyncio.gather(job, return_exceptions=True)
+        event = h.manager.snapshot()["bells"][0]
+        assert event["status"] == "completed"
+        assert not h.manager._timers
+        assert h.store.saved["pending_runs"] == []
+        assert len(h.calls) == 1
+
+    run_case(tmp_path, scenario)
+
+
+def test_one_time_incidental_edit_before_tts_return_is_missed_without_replay(tmp_path):
+    async def scenario(h):
+        bell = await h.bell(type="one_time", datetime=dt_util.utcnow().isoformat())
+        await h.manager.async_set_global_enabled(True)
+        entered = asyncio.Event()
+
+        async def hook(call):
+            if call.domain == "tts":
+                entered.set()
+                await asyncio.Event().wait()
+
+        h.audio_hook = hook
+        job = asyncio.create_task(h.fire(bell))
+        await entered.wait()
+        await h.manager.async_update(
+            bell["id"],
+            {"message": "Edited", "message_source": {"kind": "template", "template": "Edited"}},
+        )
+        result = await asyncio.gather(job, return_exceptions=True)
+        event = h.manager.snapshot()["bells"][0]
+        assert isinstance(result[0], asyncio.CancelledError)
+        assert event["status"] == "missed"
+        assert not h.manager._timers
+        assert h.store.saved["pending_runs"] == []
+
+    run_case(tmp_path, scenario)
+
+
+def test_one_time_incidental_edit_persist_failure_blocks_restart_replay(tmp_path):
+    async def scenario(h):
+        bell = await h.bell(type="one_time", datetime=dt_util.utcnow().isoformat())
+        await h.manager.async_set_global_enabled(True)
+        entered = asyncio.Event()
+
+        async def wait(*_args):
+            entered.set()
+            await asyncio.Event().wait()
+
+        h.manager._wait_playback = wait
+        job = asyncio.create_task(h.fire(bell))
+        await entered.wait()
+        await h.manager.async_update(
+            bell["id"],
+            {"message": "Edited", "message_source": {"kind": "template", "template": "Edited"}},
+        )
+        h.store.fail = True
+        await asyncio.gather(job, return_exceptions=True)
+        assert h.store.saved["pending_runs"] == [bell["id"]]
+        await h.manager.async_shutdown()
+        h.store.fail = False
+        replacement = FamilyBellManager(h.hass)
+        replacement._store = h.store
+        await replacement.async_initialize()
+        assert replacement.snapshot()["bells"][0]["status"] == "missed"
+        assert not replacement._timers
+        await replacement.async_shutdown()
+
+    run_case(tmp_path, scenario)
+
+
+def test_one_time_converted_to_weekly_during_playback_is_not_settled_as_event(tmp_path):
+    async def scenario(h):
+        bell = await h.bell(type="one_time", datetime=dt_util.utcnow().isoformat())
+        await h.manager.async_set_global_enabled(True)
+        entered = asyncio.Event()
+
+        async def wait(*_args):
+            entered.set()
+            await asyncio.Event().wait()
+
+        h.manager._wait_playback = wait
+        job = asyncio.create_task(h.fire(bell))
+        await entered.wait()
+        await h.manager.async_update(bell["id"], {"type": "weekly", "weekday": 1, "time": "09:00"})
+        result = await asyncio.gather(job, return_exceptions=True)
+        current = h.manager.snapshot()["bells"][0]
+        assert isinstance(result[0], asyncio.CancelledError)
+        assert current["type"] == "weekly"
+        assert current["time"] == "09:00:00"
+        assert "datetime" not in current
+        assert h.store.saved["pending_runs"] == []
+
+    run_case(tmp_path, scenario)
+
+
+def test_one_time_future_reschedule_during_sent_playback_remains_pending(tmp_path):
+    async def scenario(h):
+        bell = await h.bell(type="one_time", datetime=dt_util.utcnow().isoformat())
+        await h.manager.async_set_global_enabled(True)
+        entered = asyncio.Event()
+
+        async def wait(*_args):
+            entered.set()
+            await asyncio.Event().wait()
+
+        h.manager._wait_playback = wait
+        job = asyncio.create_task(h.fire(bell))
+        await entered.wait()
+        future = (dt_util.utcnow() + timedelta(days=1)).isoformat()
+        await h.manager.async_update(bell["id"], {"datetime": future})
+        await asyncio.gather(job, return_exceptions=True)
+        current = h.manager.snapshot()["bells"][0]
+        assert current["status"] == "pending"
+        assert dt_util.parse_datetime(current["datetime"]) > dt_util.utcnow()
+        assert "bell:" + bell["id"] in h.manager._timers
+        assert h.store.saved["pending_runs"] == []
+
+    run_case(tmp_path, scenario)
+
+
+def test_replace_restore_during_playback_cancels_without_leaving_claim(tmp_path):
+    async def scenario(h):
+        bell = await h.bell(type="one_time", datetime=dt_util.utcnow().isoformat())
+        await h.manager.async_set_global_enabled(True)
+        entered = asyncio.Event()
+
+        async def wait(*_args):
+            entered.set()
+            await asyncio.Event().wait()
+
+        h.manager._wait_playback = wait
+        job = asyncio.create_task(h.fire(bell))
+        await entered.wait()
+        payload = {"version": 2, "timezone": "UTC", "bells": [], "routines": [], "message_sets": []}
+        preview = h.manager.restore_preview(payload, "replace")
+        await h.manager.async_restore(payload, "replace", False, preview["fingerprint"])
+        result = await asyncio.gather(job, return_exceptions=True)
+        assert isinstance(result[0], asyncio.CancelledError)
+        assert h.manager.snapshot()["bells"] == []
+        assert h.store.saved["pending_runs"] == []
+        assert not h.manager._timers
+
+    run_case(tmp_path, scenario)
+
+
+def test_message_set_delete_reports_all_disabled_references_and_keeps_data(tmp_path):
+    async def scenario(h):
+        message_set = await h.manager.async_create_message_set(
+            {"name": "Choices", "messages": ["One"]}
+        )
+        source = {
+            "kind": "message_set",
+            "set_id": message_set["id"],
+            "template": "{{ random_message }}",
+        }
+        bell = await h.bell(message_source=source, enabled=False)
+        routine = await h.routine()
+        await h.manager.async_update_routine(
+            routine["id"],
+            {
+                "enabled": False,
+                "steps": [{**routine["steps"][0], "enabled": False, "message_source": source}],
+            },
+        )
+        before = h.manager.snapshot()
+        with pytest.raises(
+            BellValidationError, match=r"in use by 2 records \(1 bell and 1 routine step\)"
+        ):
+            await h.manager.async_delete_message_set(message_set["id"])
+        assert h.manager.snapshot() == before
+        assert bell["id"] in {item["id"] for item in h.manager.snapshot()["bells"]}
+
+    run_case(tmp_path, scenario)
+
+
+def test_malformed_restore_message_set_reference_is_rejected_without_mutation(tmp_path):
+    async def scenario(h):
+        await h.bell()
+        before = h.manager.snapshot()
+        malformed = h.manager.export_data()
+        malformed["bells"][0]["message_source"] = {
+            "kind": "message_set",
+            "set_id": "missing",
+            "template": "{{ random_message }}",
+        }
+        with pytest.raises(BellValidationError, match="referenced message set does not exist"):
+            h.manager.restore_preview(malformed, "replace")
+        assert h.manager.snapshot() == before
+
+    run_case(tmp_path, scenario)
+
+
+def test_allowed_uses_single_detached_target_lookup(tmp_path):
+    async def scenario(h):
+        bell = await h.bell()
+        await h.manager.async_set_global_enabled(True)
+        key = "bell:" + bell["id"]
+        target = h.manager._target(key)
+        assert target == h.manager._targets()[key]
+        target["enabled"] = False
+        assert h.manager._data["bells"][0]["enabled"] is True
+        with patch.object(h.manager, "_targets", side_effect=AssertionError("full map used")):
+            assert h.manager._allowed(key, h.manager._target(key), False)
+
+    run_case(tmp_path, scenario)
+
+
+def test_timezone_change_notifies_pending_events_without_changing_instants(tmp_path):
+    async def scenario(h):
+        event = await h.bell(
+            type="one_time", datetime="2030-01-01T08:30:00+00:00", name="Appointment"
+        )
+        weekly = await h.bell(time="08:00")
+        h.hass.config.language = "ko"
+        h.hass.config.time_zone = "Asia/Seoul"
+        with patch(
+            "custom_components.ha_family_bell.manager.persistent_notification.async_create"
+        ) as notify:
+            await h.manager.async_timezone_changed()
+        after = h.manager.snapshot()
+        assert (
+            next(item for item in after["bells"] if item["id"] == event["id"])["datetime"]
+            == event["datetime"]
+        )
+        assert (
+            next(item for item in after["bells"] if item["id"] == weekly["id"])["time"]
+            == weekly["time"]
+        )
+        assert h.manager.timezone.key == "Asia/Seoul"
+        message = notify.call_args.args[1]
+        assert "08:30" in message and "17:30" in message and "/ha-family-bell" in message
+        assert notify.call_args.kwargs["title"].startswith("Family Bell")
+
+    run_case(tmp_path, scenario)
+
+
 def test_creates_own_ids_and_rejects_duplicate_nested_ids(tmp_path):
     async def scenario(h):
         first = await h.bell(id="supplied")
@@ -524,7 +781,7 @@ def test_template_validation_and_test_does_not_consume_shuffle_bag(tmp_path):
         await h.manager.async_set_global_enabled(True)
         await h.fire(bell)
         assert len(h.store.saved["random_state"][message_set["id"]]["remaining"]) == 1
-        with pytest.raises(BellValidationError, match="referenced"):
+        with pytest.raises(BellValidationError, match="in use"):
             await h.manager.async_delete_message_set(message_set["id"])
 
     run_case(tmp_path, scenario)

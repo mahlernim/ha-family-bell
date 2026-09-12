@@ -77,15 +77,19 @@ export function previewEntries(data, now = Date.now()) {
         slots.set(key, [...previous, row]);
       }
     };
+    // Recurring collisions are structural. They remain useful even when the
+    // next occurrence is in the past for the current browser clock.
+    for (const row of entries) {
+      delete row.conflict;
+      add("weekly:" + row.weekday + ":" + row.time.slice(0, 5), row);
+    }
+    slots.clear();
     for (let offset = 0; offset < 7; offset++) {
       const day = new Date(start);
       day.setUTCDate(day.getUTCDate() + offset);
       const weekday = (day.getUTCDay() + 6) % 7;
       const date = day.toISOString().slice(0, 10);
-      for (const row of entries.filter(entry => entry.weekday === weekday)) {
-        if (offset === 0 && row.time.slice(0, 5) < local.time) continue;
-        add(date + "T" + row.time.slice(0, 5), row);
-      }
+      for (const row of entries.filter(entry => entry.weekday === weekday)) add(date + "T" + row.time.slice(0, 5), row);
       for (const row of events.filter(entry => entry.date === date)) add(date + "T" + row.time, row);
     }
   }
@@ -129,7 +133,7 @@ const TEXT = {
   requestOnly: ["Sent means the player accepted the request; audible playback is not independently verified.", "전송됨은 재생 요청이 전달되었다는 뜻이며, 실제 소리가 났는지는 별도로 확인되지 않습니다."],
   manual: ["Manual test", "수동 테스트"], scheduled: ["Scheduled", "예약 실행"],
   save: ["Save", "저장"], saving: ["Saving…", "저장 중…"], saved: ["Saved", "저장됨"],
-  create: ["Create disabled", "중지 상태로 추가"], cancel: ["Cancel", "취소"],
+  create: ["Create", "추가"], cancel: ["Cancel", "취소"],
   close: ["Close", "닫기"], discard: ["Discard changes", "변경 취소"],
   unsaved: ["Unsaved changes", "저장하지 않은 변경 사항"],
   discardQuestion: ["Discard the unsaved changes in this editor?", "저장하지 않은 변경 사항을 버릴까요?"],
@@ -137,6 +141,7 @@ const TEXT = {
   reloadSaved: ["Reload saved version", "저장된 내용 다시 불러오기"],
   playQuestion: ["Play this saved bell now? This does not advance its message-set sequence.", "저장된 알림을 지금 재생할까요? 메시지 모음의 순서는 바뀌지 않습니다."],
   deleteQuestion: ["Delete this item?", "이 항목을 삭제할까요?"],
+  deleteStale: ["Reload the current item before deleting it.", "최신 항목을 다시 불러온 뒤 삭제하세요."],
   name: ["Name", "이름"], routineName: ["Routine name", "루틴 이름"],
   direct: ["Direct message", "직접 입력"], random: ["Message set", "메시지 모음"],
   chooseSet: ["Choose a message set", "메시지 모음 선택"], insertTime: ["Insert time", "시간 넣기"],
@@ -169,6 +174,9 @@ const TEXT = {
   noDay: ["Select at least one weekday.", "요일을 하나 이상 선택하세요."],
   tooLarge: ["Choose a JSON file smaller than 5 MB.", "5MB 미만의 JSON 파일을 선택하세요."],
   unavailableError: ["No selected speaker is available", "선택한 스피커를 사용할 수 없습니다"],
+  more: ["More", "더 보기"], speakerCount: ["{count} speakers", "스피커 {count}개"],
+  unavailableCount: ["{count} unavailable", "사용 불가 {count}개"], routinePaused: ["Routine paused", "루틴 일시 중지"],
+  bellPaused: ["Paused", "일시 중지"],
 };
 DAYS.forEach((day, index) => { TEXT[day] = [day, ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"][index]]; });
 

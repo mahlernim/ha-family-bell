@@ -15,6 +15,7 @@ from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from homeassistant.components import persistent_notification
 from homeassistant.core import CoreState, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError, TemplateError
 from homeassistant.helpers.event import async_track_point_in_utc_time
@@ -22,7 +23,14 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.template import Template
 from homeassistant.util import dt as dt_util
 
-from .const import DEFAULT_SETTINGS, EVENT_FIRED, EVENT_UPDATED, STORE_KEY, STORE_VERSION
+from .const import (
+    DEFAULT_SETTINGS,
+    EVENT_FIRED,
+    EVENT_UPDATED,
+    PANEL_URL_PATH,
+    STORE_KEY,
+    STORE_VERSION,
+)
 from .schedule import (
     BellValidationError,
     advance_shuffle,
@@ -136,13 +144,19 @@ class FamilyBellManager:
     async def async_timezone_changed(self, _event=None) -> None:
         if self._stopping or self.timezone.key == self.hass.config.time_zone:
             return
+        previous_timezone = self.timezone
         self.timezone = ZoneInfo(self.hass.config.time_zone)
+        if not self._started:
+            return
+        affected = self._timezone_changed_events(previous_timezone, self.timezone)
         for task, (_key, _target, test) in list(self._jobs.items()):
             if not test and not task.cancelling():
                 task.cancel()
         self._cancel_timers()
         self._reschedule_all()
         self._notify()
+        if affected:
+            self._notify_timezone_changed(affected, previous_timezone)
 
     async def async_shutdown(self, _event=None) -> None:
         self._stopping = True
@@ -372,6 +386,34 @@ class FamilyBellManager:
                 }
         return targets
 
+    def _target(self, key: str) -> dict | None:
+        """Return one detached target without building the complete target map."""
+        if key.startswith("bell:"):
+            bell_id = key.removeprefix("bell:")
+            bell = next((item for item in self._data["bells"] if item["id"] == bell_id), None)
+            return deepcopy(bell) if bell is not None else None
+        if not key.startswith("routine:"):
+            return None
+        try:
+            routine_id, step_id = key.removeprefix("routine:").split(":", 1)
+        except ValueError:
+            return None
+        routine = next((item for item in self._data["routines"] if item["id"] == routine_id), None)
+        if routine is None:
+            return None
+        step = next((item for item in routine["steps"] if item["id"] == step_id), None)
+        if step is None:
+            return None
+        return {
+            **deepcopy(step),
+            "id": f"{routine['id']}:{step['id']}",
+            "type": "routine",
+            "routine_id": routine["id"],
+            "routine_name": routine["name"],
+            "step_id": step["id"],
+            "routine_enabled": routine["enabled"],
+        }
+
     def _occurrence(self, target: dict, now: datetime) -> datetime | None:
         if not target["enabled"] or not target.get("routine_enabled", True):
             return None
@@ -497,6 +539,19 @@ class FamilyBellManager:
         async with self._change() as data:
             current = self._find(data, collection, record_id)
             self._check_revision(current, expected_revision)
+            if collection == "message_sets":
+                bell_refs, step_refs = self._message_set_reference_counts(data, record_id)
+                references = bell_refs + step_refs
+                if references:
+                    parts = []
+                    if bell_refs:
+                        parts.append(f"{bell_refs} bell{'s' if bell_refs != 1 else ''}")
+                    if step_refs:
+                        parts.append(f"{step_refs} routine step{'s' if step_refs != 1 else ''}")
+                    raise BellValidationError(
+                        f"Message set is in use by {references} record{'s' if references != 1 else ''} "
+                        f"({' and '.join(parts)})."
+                    )
             data[collection].remove(current)
             self._validate_data(data)
             if collection == "message_sets":
@@ -698,12 +753,67 @@ class FamilyBellManager:
             return False
         if test:
             return True
-        current = self._targets().get(key)
+        current = self._target(key)
         return (
             self.global_enabled
             and current == target
             and target["enabled"]
             and target.get("routine_enabled", True)
+        )
+
+    @staticmethod
+    def _message_set_reference_counts(data: dict, set_id: str) -> tuple[int, int]:
+        def references(item: dict) -> bool:
+            source = item.get("message_source", {})
+            return source.get("kind") == "message_set" and source.get("set_id") == set_id
+
+        return (
+            sum(references(bell) for bell in data["bells"]),
+            sum(references(step) for routine in data["routines"] for step in routine["steps"]),
+        )
+
+    def _timezone_changed_events(
+        self, old_timezone: ZoneInfo, new_timezone: ZoneInfo
+    ) -> list[dict]:
+        affected = []
+        for bell in self._data["bells"]:
+            if bell["type"] != "one_time" or bell["status"] != "pending":
+                continue
+            instant = datetime.fromisoformat(bell["datetime"])
+            old_display = instant.astimezone(old_timezone).strftime("%Y-%m-%d %H:%M")
+            new_display = instant.astimezone(new_timezone).strftime("%Y-%m-%d %H:%M")
+            if old_display != new_display:
+                affected.append({"old": old_display, "new": new_display})
+        return affected
+
+    def _notify_timezone_changed(self, affected: list[dict], previous_timezone: ZoneInfo) -> None:
+        korean = self.hass.config.language.lower().startswith("ko")
+        shown = affected[:5]
+        changes = "\n".join(f"- {item['old']} → {item['new']}" for item in shown)
+        remaining = len(affected) - len(shown)
+        if korean:
+            title = "Family Bell 시간대 변경"
+            message = (
+                f"시간대가 {previous_timezone.key}에서 {self.timezone.key}(으)로 변경되었습니다. "
+                f"예정된 일회성 알림 {len(affected)}개의 실제 시각은 유지되며 표시 시각만 바뀝니다.\n\n"
+                f"{changes}"
+                + (f"\n- 외 {remaining}개" if remaining else "")
+                + f"\n\n[Family Bell 열기](/{PANEL_URL_PATH})"
+            )
+        else:
+            title = "Family Bell timezone changed"
+            message = (
+                f"The timezone changed from {previous_timezone.key} to {self.timezone.key}. "
+                f"{len(affected)} pending one-time event(s) keep the same instant, but their displayed "
+                f"local time changed.\n\n{changes}"
+                + (f"\n- and {remaining} more" if remaining else "")
+                + f"\n\n[Open Family Bell](/{PANEL_URL_PATH})"
+            )
+        persistent_notification.async_create(
+            self.hass,
+            message,
+            title=title,
+            notification_id="ha_family_bell_timezone_changed",
         )
 
     def _cancel_invalid_jobs(self):
@@ -914,7 +1024,12 @@ class FamilyBellManager:
                             current = next(
                                 (item for item in data["bells"] if item["id"] == target["id"]), None
                             )
-                            if current == target:
+                            if (
+                                current
+                                and current["type"] == "one_time"
+                                and datetime.fromisoformat(current["datetime"])
+                                == datetime.fromisoformat(target["datetime"])
+                            ):
                                 current["status"] = "completed" if result["speakers"] else "missed"
                         data["history"] = [*data["history"][-99:], result]
                     self.hass.bus.async_fire(EVENT_FIRED, deepcopy(result))

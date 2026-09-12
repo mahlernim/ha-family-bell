@@ -69,13 +69,14 @@ media_player 엔티티가 필요합니다. Family Bell 자체는 별도 계정�
 설정 폴더의 custom_components 아래로 복사하고 재시작한 뒤 통합 구성요소를 추가하세요.
 이 저장소는 HACS 사용자 지정 저장소로 설치할 수 있습니다.
 
-### v0.4.1로 업데이트
+### v0.4.2로 업데이트
 
 HACS에서 업데이트한 뒤 Home Assistant를 재시작하고 브라우저 패널을 새로고침하세요.
-기존 일정, 메시지 모음, TTS 설정과 엔티티의 고유 ID는 유지됩니다. 일정과 미리보기는
-더 간결한 행으로 표시됩니다. 알림을 저장하면 선택한 스피커가 해당 브라우저에 기억되어
-다음 주간 알림, 일회성 알림, 루틴 알림을 추가할 때 자동으로 선택됩니다. 저장에 실패하거나
-편집을 취소하면 기억된 스피커는 바뀌지 않습니다. 브라우저와 기기마다 선택을 따로 기억합니다.
+기존 일정, 메시지 모음, TTS 설정과 엔티티의 고유 ID는 유지됩니다. 실행 중인 일회성
+알림을 수정했을 때 같은 예약이 다시 실행되는 문제를 수정했습니다. 모바일에서는
+사용 체크박스와 **수정**을 바로 사용하고, 나머지 작업은 **더 보기**에서 선택합니다.
+검색 중 배경 업데이트가 발생해도 입력 위치를 유지하며, 삭제할 항목이 다른 화면에서
+변경되었다면 먼저 최신 내용을 확인하도록 안내합니다.
 
 0.3.x에서 업데이트하는 경우 편집은 각 알림의 **수정** 버튼으로 엽니다. 기존 TTS
 서비스를 계속 사용할 수 있으며, 제공자를 선택하면 tts.speak를 사용합니다.
@@ -89,6 +90,10 @@ HACS에서 업데이트한 뒤 Home Assistant를 재시작하고 브라우저 �
 모든 일정은 Home Assistant 시간대를 사용합니다. 서머타임 전환으로 없는 시각의
 반복 알림은 그날 건너뛰며, 두 번 오는 시각에는 첫 번째에 한 번만 실행합니다.
 일회성 편집에서 없는 시각은 저장할 수 없습니다.
+
+HA 시간대를 변경하면 반복 알림은 현지 시각을 유지하고, 일회성 알림은 원래 예약한
+순간을 유지하므로 표시되는 현지 시각이 달라질 수 있습니다. 대기 중인 일회성 알림의
+현지 시각이 바뀌면 패널 링크가 있는 알림으로 안내합니다.
 
 전체 일정 일시 중지, 알림 삭제, 통합 재로드는 대기 중인 실행과 시작음 뒤의 음성
 요청을 취소합니다. 이미 스피커에 전달된 오디오는 계속 재생될 수 있습니다.
@@ -136,14 +141,14 @@ bells must both be enabled to run. For manual installation, copy
 custom_components/ha_family_bell into your configuration's custom_components
 directory, restart, and add the integration. HACS installation uses a custom repository.
 
-### Upgrade to v0.4.1
+### Upgrade to v0.4.2
 
 Update in HACS, restart Home Assistant and refresh the panel. Existing schedules,
-message sets, announcement settings and entity unique IDs are retained. Schedules
-and previews now use compact rows. After a bell is saved, its selected speakers are
-remembered in that browser and preselected for new weekly bells, one-time events and
-routine steps. Cancelled edits and failed saves do not change the remembered choice.
-Each browser or device keeps its own choice.
+message sets, announcement settings and entity unique IDs are retained. Editing a
+one-time event during playback no longer replays the same occurrence. On mobile,
+use the enable checkbox and **Edit** directly, and find secondary actions under
+**More**. Background updates preserve the search cursor. If a record changed in
+another window, deletion asks you to review its current contents first.
 
 When upgrading from 0.3.x, open individual **Edit** dialogs to make changes. Existing
 legacy TTS services remain supported; choosing a provider uses tts.speak.
@@ -158,6 +163,10 @@ pauses the master switch. Leave **Restore announcement settings** unchecked for
 All times use Home Assistant's time zone. Recurring bells skip nonexistent
 spring-forward times and run only in the first occurrence of a repeated fall-back
 time. The one-time editor rejects nonexistent local times.
+
+When HA's time zone changes, recurring bells keep their local wall time. One-time
+events keep their originally scheduled instant, so their displayed local time may
+change. A notification links to the panel when pending events are affected.
 
 Pausing, deleting or reloading cancels queued playback and speech waiting behind a
 chime. Already accepted audio may continue on a speaker. **Sent** means HA accepted

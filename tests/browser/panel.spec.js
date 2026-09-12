@@ -107,6 +107,7 @@ test("mobile Korean controls remain labelled and fit the viewport", async ({ pag
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => { window.panel.hass.locale.language = "ko"; window.panel.render(); });
   await expect(page.locator('[data-tab="settings"]')).toHaveText("알림 설정");
+  await expect(page.getByLabel("메시지·루틴 검색", { exact: true })).toBeVisible();
   await tab(page, "weekly");
   await page.getByRole("button", { name: "알림 추가", exact: true }).click();
   await expect(dialog(page).getByLabel("시간", { exact: true })).toBeVisible();
@@ -209,4 +210,139 @@ test("one-time events separate upcoming from previous and delete finished atomic
     expected_revision: 1,
   });
   expect(await page.evaluate(() => window.example.bells.filter(b => b.type === "one_time").map(b => b.id).sort())).toEqual(["later", "next"]);
+});
+
+test("create label and enabled checkbox produce an enabled bell", async ({ page }) => {
+  await tab(page, "weekly");
+  await page.getByRole("button", { name: "Add bell", exact: true }).click();
+  await expect(dialog(page).getByRole("button", { name: "Create", exact: true })).toBeVisible();
+  await dialog(page).locator('input[name="enabled"]').check();
+  await dialog(page).locator('input[name="speakers"][value="media_player.study"]').check();
+  await dialog(page).locator('textarea[name="template"]').fill("Created enabled bell");
+  await dialog(page).getByRole("button", { name: "Create", exact: true }).click();
+  await expect(dialog(page)).not.toBeVisible();
+  expect(await page.evaluate(() => window.requests.find(request => request.type === "ha_family_bell/create").bell.enabled)).toBe(true);
+});
+
+test("mobile keeps direct controls large and moves secondary actions into More", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => { window.panel.hass.locale.language = "ko"; window.panel.render(); });
+  await tab(page, "weekly");
+  const row = page.locator(".bell-row").last();
+  const toggle = row.locator(".row-toggle");
+  const edit = row.getByRole("button", { name: "수정", exact: true });
+  const more = row.getByRole("button", { name: "더 보기", exact: true });
+  expect((await toggle.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  expect((await toggle.boundingBox()).width).toBeGreaterThanOrEqual(44);
+  expect((await edit.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  expect((await edit.boundingBox()).width).toBeGreaterThanOrEqual(44);
+  expect((await more.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  expect((await more.boundingBox()).width).toBeGreaterThanOrEqual(44);
+  expect((await row.boundingBox()).height).toBeLessThan(129);
+  await more.click();
+  const menu = row.getByRole("menu");
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "삭제", exact: true })).toBeVisible();
+  for (const item of await menu.getByRole("menuitem").all()) {
+    expect((await item.boundingBox()).height).toBeGreaterThanOrEqual(44);
+    expect((await item.boundingBox()).width).toBeGreaterThanOrEqual(44);
+  }
+  await expect(menu.getByRole("menuitem", { name: "저장된 알림 재생", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitem", { name: "요일에 복사", exact: true })).toBeFocused();
+  expect((await menu.boundingBox()).y + (await menu.boundingBox()).height).toBeLessThanOrEqual(844);
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(more).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.evaluate(() => { window.example.bells[1].message_source.template = "매우 긴 한국어 알림 문구가 좁은 화면에서도 가로로 넘치지 않고 여러 줄로 읽혀야 합니다."; window.emit(); });
+  await tab(page, "one_time");
+  await page.locator('[data-section="previous"] summary').click();
+  const eventRow = page.locator('[data-section="previous"] .bell-row');
+  expect(await eventRow.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await tab(page, "preview");
+  const previewEdit = page.locator(".preview-row button").first();
+  expect((await previewEdit.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  expect((await previewEdit.boundingBox()).width).toBeGreaterThanOrEqual(44);
+});
+
+test("preview controls and status region persist across data refreshes", async ({ page }) => {
+  const search = page.locator('input[name="search"]');
+  await search.fill("morning");
+  await search.evaluate(input => { input.setSelectionRange(3, 3); window.filterNode = input; window.statusNode = document.querySelector("ha-family-bell-panel").shadowRoot.querySelector("#panel-feedback"); });
+  await page.evaluate(() => window.emit());
+  await expect.poll(() => page.evaluate(() => {
+    const root = document.querySelector("ha-family-bell-panel").shadowRoot;
+    const input = root.querySelector('input[name="search"]');
+    return input === window.filterNode && root.activeElement === input && input.selectionStart === 3;
+  })).toBe(true);
+  await page.evaluate(() => { window.panel.announce("Saved"); window.panel.render(); });
+  const feedback = page.locator("ha-family-bell-panel").locator("#panel-feedback");
+  await expect(feedback).toHaveText("Saved");
+  expect(await page.evaluate(() => document.querySelector("ha-family-bell-panel").shadowRoot.querySelector("#panel-feedback") === window.statusNode)).toBe(true);
+  await page.evaluate(() => { window.panel.announce("Saved"); window.panel.render(); });
+  expect(await feedback.textContent()).toBe("");
+  await expect(feedback).toHaveText("Saved");
+});
+
+test("preview retains a selected missing speaker and defers option replacement until blur", async ({ page }) => {
+  const speaker = page.locator('select[name="speaker"]');
+  await speaker.selectOption("media_player.study");
+  await speaker.focus();
+  await page.evaluate(() => { delete window.panel.hass.states["media_player.study"]; window.emit(); });
+  await expect(speaker.locator('option[value="media_player.study"]')).toHaveText("Study speaker");
+  await page.locator('input[name="search"]').focus();
+  await expect(speaker.locator('option[value="media_player.study"]')).toHaveText("media_player.study · Missing");
+  await expect(speaker).toHaveValue("media_player.study");
+});
+
+test("paused routines retain checked child controls and show a paused cue", async ({ page }) => {
+  await page.evaluate(() => { window.example.routines[0].enabled = false; window.emit(); });
+  await tab(page, "routines");
+  const row = page.locator(".bell-row").first();
+  await expect(row).toHaveClass(/parent-paused/);
+  await expect(row.locator('input[name="bell-enabled"]')).toBeChecked();
+  await expect(row).toContainText("Routine paused");
+  expect(await row.getByRole("button", { name: "Edit", exact: true }).evaluate(button => getComputedStyle(button).opacity)).toBe("1");
+});
+
+test("disabled bells retain controls and show a paused cue", async ({ page }) => {
+  await page.evaluate(() => { window.example.bells[0].enabled = false; window.emit(); });
+  await tab(page, "weekly");
+  const row = page.locator(".bell-row").first();
+  await expect(row).toHaveClass(/disabled/);
+  await expect(row).toContainText("Paused");
+  expect(await row.getByRole("button", { name: "Edit", exact: true }).evaluate(button => getComputedStyle(button).opacity)).toBe("1");
+});
+
+test("delete uses the revision displayed with the row", async ({ page }) => {
+  await tab(page, "weekly");
+  page.once("dialog", prompt => prompt.accept());
+  await page.locator(".bell-row").first().getByRole("button", { name: "Delete", exact: true }).click();
+  expect(await page.evaluate(() => window.requests.find(request => request.type === "ha_family_bell/delete"))).toMatchObject({ bell_id: "weekly", expected_revision: 1 });
+});
+
+for (const [view, owner, collection, command] of [
+  ["weekly", "weekly", "bells", "delete"],
+  ["routines", "routine_meta", "routines", "routine/delete"],
+  ["message_sets", "message_set", "message_sets", "message_set/delete"],
+]) {
+  test(`${view} stale deletion reloads current data and requires an explicit retry`, async ({ page }) => {
+    await tab(page, view);
+    await page.evaluate(collection => { window.example[collection][0].revision++; }, collection);
+    page.once("dialog", prompt => prompt.accept());
+    await page.locator(`[data-action="delete"][data-owner="${owner}"]:visible`).first().click();
+    await expect(page.locator("#panel-error")).toContainText("changed elsewhere");
+    const requests = await page.evaluate(() => window.requests);
+    expect(requests.filter(request => request.type === "ha_family_bell/" + command)).toHaveLength(1);
+    expect(requests.find(request => request.type === "ha_family_bell/" + command).expected_revision).toBe(1);
+    expect(requests.at(-1).type).toBe("ha_family_bell/list");
+    expect(await page.evaluate(collection => window.panel.data[collection][0].revision, collection)).toBe(2);
+  });
+}
+
+test("literal checkbox labels are escaped without translation", async ({ page }) => {
+  expect(await page.evaluate(() => window.panel.checkboxText("example", "save <example>", false))).toContain("save &lt;example&gt;");
+  expect(await page.evaluate(() => window.panel.checkboxText("example", "save", false))).toContain(">save</label>");
 });

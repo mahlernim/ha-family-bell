@@ -20,6 +20,7 @@ jobs:
         with:
           python-version: "3.14"
       - run: python -m pip install "homeassistant==${{ matrix.ha }}" pytest ruff
+      - run: python tools/check_versions.py
       - run: python -m pytest -q
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
@@ -49,3 +50,14 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+  release-version:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: python tools/check_versions.py --tag "$RELEASE_TAG"
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
