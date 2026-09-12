@@ -94,12 +94,20 @@ async def ws_update(hass, connection, msg) -> None:
 
 
 @websocket_api.websocket_command(
-    {vol.Required("type"): "ha_family_bell/delete", vol.Required("bell_id"): str}
+    {
+        vol.Required("type"): "ha_family_bell/delete",
+        vol.Required("bell_id"): str,
+        vol.Optional("expected_revision"): int,
+    }
 )
 @websocket_api.require_admin
 @websocket_api.async_response
 async def ws_delete(hass, connection, msg) -> None:
-    await _run(connection, msg, lambda: _manager(hass).async_delete(msg["bell_id"]))
+    await _run(
+        connection,
+        msg,
+        lambda: _manager(hass).async_delete(msg["bell_id"], msg.get("expected_revision")),
+    )
 
 
 @websocket_api.websocket_command(
@@ -212,12 +220,19 @@ async def ws_routine_update(hass, connection, msg) -> None:
     {
         vol.Required("type"): "ha_family_bell/routine/delete",
         vol.Required("routine_id"): str,
+        vol.Optional("expected_revision"): int,
     }
 )
 @websocket_api.require_admin
 @websocket_api.async_response
 async def ws_routine_delete(hass, connection, msg) -> None:
-    await _run(connection, msg, lambda: _manager(hass).async_delete_routine(msg["routine_id"]))
+    await _run(
+        connection,
+        msg,
+        lambda: _manager(hass).async_delete_routine(
+            msg["routine_id"], msg.get("expected_revision")
+        ),
+    )
 
 
 @websocket_api.websocket_command(
@@ -270,12 +285,19 @@ async def ws_message_set_update(hass, connection, msg) -> None:
     {
         vol.Required("type"): "ha_family_bell/message_set/delete",
         vol.Required("set_id"): str,
+        vol.Optional("expected_revision"): int,
     }
 )
 @websocket_api.require_admin
 @websocket_api.async_response
 async def ws_message_set_delete(hass, connection, msg) -> None:
-    await _run(connection, msg, lambda: _manager(hass).async_delete_message_set(msg["set_id"]))
+    await _run(
+        connection,
+        msg,
+        lambda: _manager(hass).async_delete_message_set(
+            msg["set_id"], msg.get("expected_revision")
+        ),
+    )
 
 
 @websocket_api.websocket_command(

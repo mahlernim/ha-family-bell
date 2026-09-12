@@ -41,6 +41,20 @@ test("paused schedules and disabled bells do not create conflict warnings", () =
     assert.equal(result.events[0].conflict, undefined);
   }
 });
+test("recurring conflicts are structural even after today's browser-clock time", () => {
+  const duplicate = { ...bell, id: "duplicate", message_source: { ...source }, speakers: ["media_player.example"] };
+  const result = previewEntries({ ...data, bells: [bell, duplicate] }, Date.parse("2026-09-07T09:00:00+09:00"));
+  assert.equal(result.recurring[0].conflict, true);
+  assert.equal(result.recurring[1].conflict, true);
+});
+test("dated one-time conflicts are limited to the displayed seven days", () => {
+  const withinWeek = { ...event, id: "within", datetime: "2026-09-09T08:00:00+09:00" };
+  const withinWeekPeer = { ...event, id: "within-peer", datetime: "2026-09-09T08:00:00+09:00" };
+  const beyondWeek = { ...event, id: "beyond", datetime: "2026-09-20T08:00:00+09:00" };
+  const result = previewEntries({ ...data, bells: [bell, withinWeek, withinWeekPeer, beyondWeek] }, Date.parse("2026-09-06T20:00:00Z"));
+  assert.equal(result.events.find(item => item.id === "within").conflict, true);
+  assert.equal(result.events.find(item => item.id === "beyond").conflict, undefined);
+});
 test("routine preview retains parent and step navigation identities", () => {
   const result = previewEntries({ ...data, bells: [], routine_occurrences: [{ ...bell, routine_id: "routine", step_id: "step", routine_name: "Morning", enabled: false }] });
   assert.equal(result.recurring[0].id, "routine");
@@ -51,4 +65,13 @@ test("Korean labels interpolate counts with English fallback", () => {
   assert.equal(translate("save", "ko-KR"), "저장");
   assert.equal(translate("routineCount", "ko", { count: 3 }), "루틴 알림 3개");
   assert.equal(translate("save", "de"), "Save");
+  assert.equal(translate("more", "ko"), "더 보기");
+  assert.deepEqual(["sent", "partial", "failed", "cancelled", "queued", "sending", "pending", "completed", "missed"].map(key => translate(key, "ko")), ["전송됨", "일부 전송됨", "실패", "취소됨", "대기 중", "전송 중", "예정", "완료", "실행되지 않음"]);
+});
+
+test("every activity and one-time status has English and Korean text", () => {
+  for (const status of ["sent", "partial", "failed", "cancelled", "queued", "sending", "unavailable", "pending", "completed", "missed"]) {
+    for (const language of ["en", "ko"]) assert.notEqual(translate(status, language), status);
+  }
+  assert.equal(translate("future-status", "ko"), "future-status");
 });

@@ -61,6 +61,12 @@ const hass = {
       routine.steps.filter(s => !message.step_id || s.id === message.step_id).forEach(s => { s.enabled = message.enabled; }); routine.revision++;
     }
     const collection = command.startsWith("routine/") ? window.example.routines : command.startsWith("message_set/") ? window.example.message_sets : window.example.bells;
+    if (command === "delete" || command.endsWith("/delete")) {
+      const index = collection.findIndex(r => r.id === (message.bell_id || message.routine_id || message.set_id));
+      if (index < 0) throw Error("Item not found.");
+      if (message.expected_revision !== undefined && message.expected_revision !== collection[index].revision) throw Error("This item changed elsewhere.");
+      collection.splice(index, 1);
+    }
     if (command.endsWith("update")) {
       const item = collection.find(r => r.id === (message.bell_id || message.routine_id || message.set_id));
       if (message.expected_revision && message.expected_revision !== item.revision) throw Error("This item changed elsewhere.");

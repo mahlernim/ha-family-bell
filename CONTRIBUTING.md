@@ -27,6 +27,19 @@ Browser tests use a local example fixture and cover editor drafts, concurrent
 changes, time zones, routine toggles, backup preview and mobile controls. On Linux,
 install browser system dependencies with npx playwright install --with-deps chromium.
 
+## Panel changes
+
+The panel is shipped as local JavaScript and CSS modules. There is deliberately no
+frontend build step. Keep panel-visible text in the local bilingual table in
+`frontend/panel-model.js`, with the English value first and the Korean value second.
+Keep behavior helpers there when they can be tested with `npm test`.
+
+| Change | Keep aligned |
+| --- | --- |
+| Panel module URL | `__init__.py`, the `panel-model.js` import, and the `panel.css` URL use the release version as their cache key |
+| Panel text | English and Korean entries in `panel-model.js` describe the same behavior |
+| Settings | Preserve existing TTS defaults and settings revision behavior unless a separately reviewed change requires them |
+
 To regenerate the illustrative documentation screenshots:
 
     node tests/browser/capture.mjs
@@ -41,8 +54,10 @@ in Chromium, Ruff, Hassfest and HACS validation. Runtime integration testing doe
 not establish physical speaker compatibility.
 
 Keep manifest.json, pyproject.toml, package.json, package-lock.json and all frontend
-cache keys on the same release version. Existing store version 2 and entity unique
-IDs must remain compatible. Review migration tests before changing storage.
+cache keys on the same release version. Run `python tools/check_versions.py` before
+opening a pull request. On release tags, CI also checks that the tag matches the
+source version. Existing store version 2 and entity unique IDs must remain compatible.
+Review migration tests before changing storage.
 
 User-facing documentation and release notes are Korean first, with usable English
 coverage. Keep PR descriptions concise and explain the problem, resulting behavior

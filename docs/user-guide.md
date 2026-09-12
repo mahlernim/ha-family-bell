@@ -12,10 +12,22 @@
 스피커 겹침 표시가 나타납니다. 중지된 알림은 겹침 계산에서 제외됩니다. 간결한 행과
 요일별 개수 표시를 사용해 많은 알림을 한 화면에서 확인할 수 있습니다.
 
+반복 알림끼리의 겹침은 오늘 해당 시각이 지났어도 표시합니다. 일회성 알림과의 겹침은
+미리보기에 표시하는 7일의 실제 날짜를 기준으로 계산합니다. 겹침 표시는 같은 시각에
+대기열을 공유할 수 있다는 안내이며, 실행을 차단하지 않습니다.
+
+모바일에서는 사용 체크박스와 **수정**을 바로 사용하세요. 재생, 복사, 다시 예약,
+삭제는 해당 행의 **더 보기**에서 선택합니다. 스피커 요약에 전체 개수와 사용 불가
+상태를 표시하며, 전체 목록은 **수정**에서 확인할 수 있습니다.
+
 각 행의 **수정**은 해당 알림을 바로 엽니다. 다른 화면에서 상태가 바뀌어도 편집 중인
 내용은 유지됩니다. 같은 알림을 다른 관리자가 먼저 저장했다면 변경 안내가 표시되고
 오래된 내용의 저장을 거부합니다. 필요한 초안을 따로 보관한 뒤 **저장된 내용 불러오기**를
 선택하세요. 저장 오류가 나면 편집창 안의 오류를 확인하고 다시 시도하세요.
+
+삭제할 항목이 다른 화면에서 변경되었다면 삭제를 거부합니다. 최신 내용을 확인한 뒤
+다시 삭제하세요. 새 알림의 **사용**은 기본적으로 꺼져 있으며, 직접 체크한 경우에는
+**추가**를 누를 때 사용 상태로 저장합니다. 가져오기와 요일별 복사는 중지 상태로 만듭니다.
 
 알림을 저장하면 선택한 스피커가 현재 브라우저에 기억됩니다. 새 주간 알림,
 일회성 알림, 루틴 알림을 만들 때 해당 스피커가 자동으로 선택됩니다. 편집을 취소하거나
@@ -58,6 +70,14 @@
 기본 최대 재생 대기 시간은 180초입니다. 스피커가 재생 상태를 전달하지 않는 경우
 문구 길이로 시간을 추정하므로 긴 음성이나 다른 미디어와의 완벽한 동기화를 보장하지 않습니다.
 
+일회성 알림을 실행 중에 수정해도 이미 시도한 예약을 자동으로 다시 실행하지 않습니다.
+새 미래 시각으로 명시적으로 변경한 예약은 유지됩니다. 취소된 실행과 스피커 전송 결과는
+최근 실행에서 확인하세요. 전송 요청의 완료는 실제 소리가 들렸다는 확인이 아닙니다.
+
+HA 시간대를 바꾸면 반복 알림은 현지 시각을 유지하고 일회성 알림은 원래의 예약 순간을
+유지합니다. 대기 중인 일회성 알림의 표시 시각이 달라지면 알림을 표시합니다. 알림의
+패널 링크에서 새 현지 시각을 확인하고 필요한 경우 다시 예약하세요.
+
 ### 백업과 복원
 
 1. **알림 설정 → 백업 다운로드**로 현재 데이터를 저장하세요.
@@ -99,10 +119,23 @@ Shared-speaker warnings apply to enabled bells scheduled for the same minute.
 Paused bells do not create conflict warnings. Compact rows and per-day counts keep
 larger schedules scannable.
 
+Recurring overlaps remain visible after their time has passed today. Overlaps with
+one-time events use actual dates within the seven displayed days. Warnings indicate
+possible shared queues and do not block execution.
+
+On mobile, use the enable checkbox and **Edit** directly. Open the row's **More**
+menu for playback, copy, reschedule and delete actions. Speaker summaries retain
+the total and unavailable status. Open **Edit** to inspect the complete list.
+
 **Edit** opens the exact bell or routine step. Background updates preserve the
 draft. If someone else changes the same record, save is rejected with a conflict
 message. Keep any draft text you need, then choose **Reload saved version**.
 Save errors stay in the dialog so you can correct the problem and try again.
+
+Deletion is rejected if the record changed in another window. Review its current
+contents before deleting again. New bells default to disabled, but explicitly
+checking **Enabled** makes **Create** save an enabled bell. Imports and copies to
+other days start disabled.
 
 After a bell is saved, its selected speakers are remembered in the current browser.
 They are preselected when creating a weekly bell, one-time event or routine step.
@@ -143,6 +176,15 @@ cancelled outcomes per speaker. Accepted audio may continue after pausing.
 The default maximum playback wait is 180 seconds. Without usable player feedback,
 wait time is estimated from text length; long announcements or unrelated media
 cannot be synchronized perfectly.
+
+Editing a one-time event during execution does not automatically retry the attempted
+occurrence. Explicitly changing it to a new future time preserves that new occurrence.
+Check Recent activity for cancellation and per-speaker results. A completed service
+request does not prove that audio was heard.
+
+Changing HA's time zone preserves recurring wall times and the original instant of
+one-time events. A notification appears if pending one-time events acquire different
+local times. Follow its panel link, review those times, and reschedule if necessary.
 
 ### Backup and restore
 
