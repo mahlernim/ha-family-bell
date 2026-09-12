@@ -110,7 +110,8 @@ footer { display: flex; gap: 10px; justify-content: flex-end; position: sticky; 
   .desktop-actions { display: none; }
   .more-actions { display: inline-flex; align-items: center; }
   .row-menu:not([hidden]) { display: grid; gap: 4px; min-width: 176px; }
-  .row-menu button { min-height: 44px; text-align: left; }
+  .bell-row .row-menu button { min-width: 44px; min-height: 44px; text-align: left; }
+  .preview-row button { min-width: 44px; min-height: 44px; }
   dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); border-radius: 12px; }
   dialog form { padding: 16px 16px 0; }
   footer { flex-wrap: wrap; }

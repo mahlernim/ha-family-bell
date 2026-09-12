@@ -243,6 +243,10 @@ test("mobile keeps direct controls large and moves secondary actions into More",
   const menu = row.getByRole("menu");
   await expect(menu).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "삭제", exact: true })).toBeVisible();
+  for (const item of await menu.getByRole("menuitem").all()) {
+    expect((await item.boundingBox()).height).toBeGreaterThanOrEqual(44);
+    expect((await item.boundingBox()).width).toBeGreaterThanOrEqual(44);
+  }
   await expect(menu.getByRole("menuitem", { name: "저장된 알림 재생", exact: true })).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(menu.getByRole("menuitem", { name: "요일에 복사", exact: true })).toBeFocused();
@@ -257,6 +261,10 @@ test("mobile keeps direct controls large and moves secondary actions into More",
   const eventRow = page.locator('[data-section="previous"] .bell-row');
   expect(await eventRow.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await tab(page, "preview");
+  const previewEdit = page.locator(".preview-row button").first();
+  expect((await previewEdit.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  expect((await previewEdit.boundingBox()).width).toBeGreaterThanOrEqual(44);
 });
 
 test("preview controls and status region persist across data refreshes", async ({ page }) => {
