@@ -1,4 +1,4 @@
-import { DAYS, wallTime, tomorrow, eventDatetime, friendlyTemplate, previewEntries, oneTimeSections, translate } from "./panel-model.js?v=0.4.2";
+import { DAYS, wallTime, tomorrow, eventDatetime, friendlyTemplate, previewEntries, oneTimeSections, translate } from "./panel-model.js?v=0.4.3";
 
 const escape = (value = "") => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -17,7 +17,7 @@ export class HaFamilyBellPanel extends HTMLElement {
     this.error = "";
     this.notice = "";
     this._noticeVersion = 0;
-    this.shadowRoot.innerHTML = '<link rel="stylesheet" href="' + new URL("./panel.css?v=0.4.2", import.meta.url).href + '"><main id="app"><header id="panel-header"></header><div class="summary" id="panel-summary"></div><nav aria-label="Family Bell" id="panel-tabs"></nav><div class="feedback" id="panel-feedback" role="status"></div><div class="error" id="panel-error" role="alert"></div><section id="view"></section></main><dialog id="editor"></dialog>';
+    this.shadowRoot.innerHTML = '<link rel="stylesheet" href="' + new URL("./panel.css?v=0.4.3", import.meta.url).href + '"><main id="app"><header id="panel-header"></header><div class="summary" id="panel-summary"></div><nav aria-label="Family Bell" id="panel-tabs"></nav><div class="feedback" id="panel-feedback" role="status"></div><div class="error" id="panel-error" role="alert"></div><section id="view"></section></main><dialog id="editor"></dialog>';
     this.shadowRoot.addEventListener("click", event => this.handleClick(event));
     this.shadowRoot.addEventListener("change", event => this.handleChange(event));
     this.shadowRoot.addEventListener("input", event => this.handleInput(event));

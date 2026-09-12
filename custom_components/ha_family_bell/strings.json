@@ -2,12 +2,34 @@
   "config": {
     "abort": {
       "single_instance_allowed": "Only one HA Family Bell instance is allowed.",
-      "already_configured": "Only one HA Family Bell instance is allowed."
+      "already_configured": "Only one HA Family Bell instance is allowed.",
+      "invalid_saved_data": "Saved Family Bell data is unreadable or unsupported. Its file has not been changed. Check your backup and Home Assistant logs."
+    },
+    "error": {
+      "no_tts_providers": "Set up an available text-to-speech provider in Home Assistant first, then retry. It must provide a TTS entity.",
+      "provider_unavailable": "The selected provider is no longer available. Choose an available provider.",
+      "no_supported_languages": "This provider has no supported languages available. Check its setup or choose another provider.",
+      "unsupported_language": "Choose a language from the provider's current supported list.",
+      "saved_data_missing": "The saved data found earlier is no longer present. Choose a provider for new setup, or restore the data and restart setup."
     },
     "step": {
       "user": {
-        "description": "Manage weekly announcements, reusable routines, message sets, and one-time events from one panel. The main schedule starts disabled to prevent accidental playback.",
-        "title": "Set up HA Family Bell"
+        "title": "Choose a speech provider",
+        "description": "Select the text-to-speech provider for new announcements. No provider is selected automatically. The new schedule starts paused.",
+        "data": {
+          "tts_entity_id": "Speech provider"
+        }
+      },
+      "language": {
+        "title": "Choose a speech language",
+        "description": "Select one of the language codes supported by your chosen provider. Setup does not play an announcement. You can change these settings later in the Family Bell panel.",
+        "data": {
+          "language": "Speech language"
+        }
+      },
+      "existing": {
+        "title": "Use saved Family Bell data",
+        "description": "Saved Family Bell data was found. Existing schedules, speech settings and enabled states will be retained. Enabled schedules resume when setup finishes."
       }
     }
   },

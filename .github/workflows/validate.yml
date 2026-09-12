@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - run: python -m pip install "homeassistant==${{ matrix.ha }}" pytest ruff
+      - run: python -m pip install "homeassistant==${{ matrix.ha }}" pytest ruff "mutagen==1.47.0" "ha-ffmpeg==3.2.2"
       - run: python tools/check_versions.py
       - run: python -m pytest -q
         env:

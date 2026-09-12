@@ -61,7 +61,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the single config entry."""
     domain_data = hass.data[DOMAIN]
     manager = FamilyBellManager(hass)
-    await manager.async_initialize(start=False)
+    await manager.async_initialize(
+        start=False,
+        initial_settings=entry.data.get("initial_settings"),
+        require_saved_data=entry.data.get("use_saved_data", False),
+    )
     entry.runtime_data = manager
     domain_data[DATA_MANAGER] = manager
 
@@ -79,7 +83,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             webcomponent_name=PANEL_WEB_COMPONENT,
             sidebar_title="HA Family Bell",
             sidebar_icon="mdi:bell-ring",
-            module_url=f"{STATIC_URL}/ha-family-bell-panel.js?v=0.4.2",
+            module_url=f"{STATIC_URL}/ha-family-bell-panel.js?v=0.4.3",
             require_admin=True,
             config_panel_domain=DOMAIN,
         )
