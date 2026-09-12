@@ -1,3 +1,5 @@
+# HA Family Bell
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="custom_components/ha_family_bell/brand/dark_logo@2x.png">
@@ -22,7 +24,7 @@
   </a>
 </p>
 
-[한국어](#한국어) · [English](#english) · [사용 안내 / User guide](docs/user-guide.md)
+[한국어](#한국어) · [English](#english) · [설치하기](#설치와-첫-사용) · [사용 안내 / User guide](docs/user-guide.md)
 
 ![주간 미리보기 예시](docs/images/panel-preview.png)
 
