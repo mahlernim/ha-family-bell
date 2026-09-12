@@ -55,6 +55,14 @@
 
 ### TTS와 실행 결과
 
+처음 설치할 때 사용 가능한 TTS 엔티티를 선택하고, 다음 화면에서 해당 제공자가 지원하는
+언어를 선택하세요. HA의 표시 언어를 음성 언어로 자동 적용하지 않습니다. 제공자가
+없거나 설정 도중 사용할 수 없게 되면 제공자를 설정한 뒤 다시 선택하세요. 설정 중에는
+음성을 재생하지 않으며 새 일정은 일시 중지 상태로 시작합니다.
+
+통합 구성요소를 삭제했다가 다시 추가할 때 저장된 데이터가 남아 있으면 기존 데이터를
+사용할지 확인합니다. 기존 일정과 음성 설정을 유지하며, 사용 중이던 일정은 다시 실행됩니다.
+
 **알림 설정 → 수정**에서 TTS 엔티티를 선택하면 tts.speak로 요청합니다.
 기존 TTS 서비스 옵션은 tts.google_translate_say 같은 설정을 유지할 때 사용합니다.
 언어를 비워 두면 제공자의 기본 언어를 사용합니다. 제공자에 맞는 언어 코드를 선택하세요.
@@ -160,6 +168,15 @@ does not consume the rotation. A message set cannot be deleted while bells still
 reference it. Advanced Home Assistant Jinja templates are supported.
 
 ### TTS, chimes and activity
+
+On first installation, choose an available TTS entity, then select one of its
+supported languages. HA's display language is not automatically used as the speech
+language. If no provider is available or it becomes unavailable during setup,
+configure it and choose again. Setup does not play audio, and new schedules start paused.
+
+When removing and re-adding the integration, any retained data is offered for reuse.
+Existing schedules and speech settings are preserved, and previously enabled
+schedules resume.
 
 Choose a TTS entity in **Announcement settings → Edit** to use tts.speak.
 The legacy service option retains services such as tts.google_translate_say.

@@ -2,12 +2,34 @@
   "config": {
     "abort": {
       "single_instance_allowed": "HA Family Bell은 하나만 설정할 수 있습니다.",
-      "already_configured": "HA Family Bell은 하나만 설정할 수 있습니다."
+      "already_configured": "HA Family Bell은 하나만 설정할 수 있습니다.",
+      "invalid_saved_data": "저장된 Family Bell 데이터를 읽을 수 없거나 지원하지 않는 형식입니다. 기존 파일은 변경하지 않았습니다. 백업과 Home Assistant 로그를 확인하세요."
+    },
+    "error": {
+      "no_tts_providers": "먼저 Home Assistant에서 사용 가능한 음성 제공자를 설정한 뒤 다시 시도하세요. TTS 엔티티를 제공해야 합니다.",
+      "provider_unavailable": "선택한 음성 제공자를 더 이상 사용할 수 없습니다. 사용 가능한 제공자를 선택하세요.",
+      "no_supported_languages": "이 제공자에서 지원하는 언어를 찾을 수 없습니다. 제공자 설정을 확인하거나 다른 제공자를 선택하세요.",
+      "unsupported_language": "제공자가 현재 지원하는 목록에서 언어를 선택하세요.",
+      "saved_data_missing": "이전에 확인한 저장 데이터가 더 이상 없습니다. 새 음성 제공자를 선택하거나 데이터를 복구한 뒤 다시 설정하세요."
     },
     "step": {
       "user": {
-        "title": "HA Family Bell 설정",
-        "description": "주간 알림, 루틴, 메시지 모음, 일회성 알림을 한 패널에서 관리합니다. 전체 일정은 일시 중지 상태로 시작합니다."
+        "title": "음성 제공자 선택",
+        "description": "새 안내 방송에 사용할 음성 제공자를 선택하세요. 제공자를 자동으로 선택하지 않습니다. 새 일정은 일시 중지 상태로 시작합니다.",
+        "data": {
+          "tts_entity_id": "음성 제공자"
+        }
+      },
+      "language": {
+        "title": "음성 언어 선택",
+        "description": "선택한 제공자가 지원하는 언어 코드를 선택하세요. 설정 중에는 안내 방송을 재생하지 않습니다. 나중에 Family Bell 패널에서 변경할 수 있습니다.",
+        "data": {
+          "language": "음성 언어"
+        }
+      },
+      "existing": {
+        "title": "저장된 Family Bell 데이터 사용",
+        "description": "저장된 Family Bell 데이터를 찾았습니다. 기존 일정, 음성 설정과 사용 상태를 유지합니다. 사용 중인 일정은 설정을 마치면 다시 실행됩니다."
       }
     }
   },

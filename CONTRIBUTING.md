@@ -7,7 +7,7 @@ schedules and speakers in examples; never include credentials or household backu
 
 Use Python 3.14 with the Home Assistant version being tested:
 
-    python -m pip install homeassistant==2026.9.0 pytest ruff
+    python -m pip install homeassistant==2026.9.0 pytest ruff mutagen==1.47.0 ha-ffmpeg==3.2.2
     python -m pytest -q
     ruff check .
     ruff format --check .
@@ -15,6 +15,8 @@ Use Python 3.14 with the Home Assistant version being tested:
 The tests create a local Home Assistant object and replace storage, timers and
 audio calls. They do not contact a running HA instance. Set
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 when unrelated pytest plugins are installed.
+The explicit Mutagen and HA-FFmpeg packages are Home Assistant TTS dependencies
+needed to exercise its real provider lookup API in the config-flow tests.
 
 Use Node.js 24 for the frontend checks:
 
@@ -26,6 +28,27 @@ Use Node.js 24 for the frontend checks:
 Browser tests use a local example fixture and cover editor drafts, concurrent
 changes, time zones, routine toggles, backup preview and mobile controls. On Linux,
 install browser system dependencies with npx playwright install --with-deps chromium.
+
+## Manual screen-reader check
+
+Playwright checks DOM roles, focus and live-region updates. It cannot establish what
+a screen reader actually speaks. Before a release that changes panel feedback, run
+this isolated check with a screen reader chosen and controlled by the tester:
+
+1. Start the local fixture with `node tests/browser/server.mjs` and open
+   `http://127.0.0.1:8792` in a browser. It uses fictional data and does not contact
+   Home Assistant or request real audio.
+2. Start the screen reader manually, then edit and save a weekly bell. Confirm the
+   saved feedback is announced once. Save a second edit and confirm the repeated
+   saved feedback is announced once again.
+3. Use **Play saved bell** and confirm the sent/request-only feedback is announced.
+   Then open an editor, clear every speaker, and save. Confirm the validation error
+   is announced while focus stays in the editor.
+4. Return to the preview and leave it open through an unchanged fixture refresh.
+   Confirm that old saved, playback, and error feedback is not announced again.
+
+Record the screen reader and browser version, the panel language, and any observed
+speech mismatch in the pull request. Do not infer speech behavior from browser tests.
 
 ## Panel changes
 

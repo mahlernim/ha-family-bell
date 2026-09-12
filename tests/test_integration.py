@@ -102,7 +102,7 @@ def test_unloaded_websocket_does_not_crash():
 def test_failed_setup_shuts_down_manager_and_removes_panel():
     async def run():
         manager = SimpleNamespace(async_initialize=AsyncMock(), async_shutdown=AsyncMock())
-        entry = SimpleNamespace(async_on_unload=Mock())
+        entry = SimpleNamespace(async_on_unload=Mock(), data={})
         hass = SimpleNamespace(
             data={DOMAIN: {}},
             http=SimpleNamespace(async_register_static_paths=AsyncMock()),
@@ -122,7 +122,9 @@ def test_failed_setup_shuts_down_manager_and_removes_panel():
         ):
             with pytest.raises(RuntimeError, match="platform setup failed"):
                 await async_setup_entry(hass, entry)
-            manager.async_initialize.assert_awaited_once_with(start=False)
+            manager.async_initialize.assert_awaited_once_with(
+                start=False, initial_settings=None, require_saved_data=False
+            )
             manager.async_shutdown.assert_awaited_once()
             assert DATA_MANAGER not in hass.data[DOMAIN]
             remove.assert_called_once()

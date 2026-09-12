@@ -114,9 +114,22 @@ class FamilyBellManager:
     def settings(self) -> dict[str, Any]:
         return deepcopy(self._data["settings"])
 
-    async def async_initialize(self, *, start: bool = True) -> None:
+    async def async_initialize(
+        self,
+        *,
+        start: bool = True,
+        initial_settings: dict[str, Any] | None = None,
+        require_saved_data: bool = False,
+    ) -> None:
         loaded = await self._store.async_load()
+        if loaded is None and require_saved_data:
+            raise BellValidationError(
+                "Saved Family Bell data is no longer available. Add the integration again "
+                "to choose a speech provider, or restore its saved data."
+            )
         data = {**self.empty_data(), **(loaded or {})}
+        if loaded is None and initial_settings is not None:
+            data["settings"] = {**data["settings"], **initial_settings}
         data["settings"] = self._normalize_settings(data["settings"], check_service=False)
         for collection in ("bells", "routines", "message_sets"):
             data[collection] = [self._normalize(collection, item) for item in data[collection]]

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ha-family-bell"
-version = "0.4.2"
+version = "0.4.3"
 description = "Routine, weekly, and one-time family bell scheduler for Home Assistant"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "mahlernim" }]
 
 [project.optional-dependencies]
-test = ["pytest>=8.3"]
+test = ["pytest>=8.3", "mutagen==1.47.0", "ha-ffmpeg==3.2.2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

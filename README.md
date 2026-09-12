@@ -58,25 +58,28 @@ media_player 엔티티가 필요합니다. Family Bell 자체는 별도 계정�
 1. 위 HACS 버튼을 누르거나 이 저장소를 HACS의 **Integration** 사용자 지정 저장소로 추가하세요.
 2. **HA Family Bell**을 다운로드한 뒤 Home Assistant를 재시작하세요.
 3. **설정 → 기기 및 서비스 → 통합 구성요소 추가**에서 **HA Family Bell**을 추가하세요.
-4. 사이드바에서 패널을 열고 **알림 설정 → 수정**에서 TTS 제공자와 언어를 확인하세요.
+4. 처음 설정할 때 **음성 제공자 선택**에서 TTS 엔티티를 선택하고, 다음 화면에서 제공자가 지원하는 언어를 선택하세요.
 5. 알림을 추가하고 시간, 메시지, 스피커를 선택한 뒤 저장하세요.
 6. **저장된 알림 재생**으로 소리를 확인한 후 알림과 전체 일정을 사용 상태로 바꾸세요.
 
 새 일정은 일시 중지 상태로 시작합니다. 새 알림의 사용 체크박스도 기본적으로 꺼져
 있습니다. 루틴은 루틴과 개별 알림이 모두 사용 상태여야 실행됩니다.
 
+처음 설정하려면 사용 가능한 TTS 엔티티가 필요합니다. 제공자가 보이지 않으면 Home
+Assistant에서 먼저 음성 제공자를 설정한 뒤 다시 시도하세요. 나중에 패널의 **알림 설정 →
+수정**에서 변경할 수 있습니다. 저장된 Family Bell 데이터가 있는 경우에는 기존 데이터를
+사용할지 확인하며, 저장된 TTS 설정과 일정의 사용 상태를 유지합니다.
+
 수동 설치 시 저장소의 custom_components/ha_family_bell 폴더를 Home Assistant
 설정 폴더의 custom_components 아래로 복사하고 재시작한 뒤 통합 구성요소를 추가하세요.
 이 저장소는 HACS 사용자 지정 저장소로 설치할 수 있습니다.
 
-### v0.4.2로 업데이트
+### v0.4.3로 업데이트
 
 HACS에서 업데이트한 뒤 Home Assistant를 재시작하고 브라우저 패널을 새로고침하세요.
-기존 일정, 메시지 모음, TTS 설정과 엔티티의 고유 ID는 유지됩니다. 실행 중인 일회성
-알림을 수정했을 때 같은 예약이 다시 실행되는 문제를 수정했습니다. 모바일에서는
-사용 체크박스와 **수정**을 바로 사용하고, 나머지 작업은 **더 보기**에서 선택합니다.
-검색 중 배경 업데이트가 발생해도 입력 위치를 유지하며, 삭제할 항목이 다른 화면에서
-변경되었다면 먼저 최신 내용을 확인하도록 안내합니다.
+기존 일정, 메시지 모음, TTS 설정과 엔티티의 고유 ID는 유지됩니다. 새 설치에서는 음성
+제공자와 지원 언어를 직접 선택합니다. 기존 사용자는 다시 설정할 필요가 없으며,
+저장된 기존 TTS 서비스와 언어도 유지합니다.
 
 0.3.x에서 업데이트하는 경우 편집은 각 알림의 **수정** 버튼으로 엽니다. 기존 TTS
 서비스를 계속 사용할 수 있으며, 제공자를 선택하면 tts.speak를 사용합니다.
@@ -132,7 +135,7 @@ separate account or API key. Your TTS provider may need an account or internet a
 1. Use the HACS button above, or add this repository as a custom **Integration** repository.
 2. Download **HA Family Bell** and restart Home Assistant.
 3. Add **HA Family Bell** under **Settings → Devices & services → Add integration**.
-4. Open the sidebar panel. In **Announcement settings → Edit**, choose your TTS provider and language.
+4. During first setup, choose a TTS entity under **Choose a speech provider**, then select one of its supported languages.
 5. Add a bell, choose its time, message and speakers, and save.
 6. Confirm the audio using **Play saved bell**, then enable the bell and master schedule.
 
@@ -141,14 +144,18 @@ bells must both be enabled to run. For manual installation, copy
 custom_components/ha_family_bell into your configuration's custom_components
 directory, restart, and add the integration. HACS installation uses a custom repository.
 
-### Upgrade to v0.4.2
+First setup requires an available TTS entity. If no provider appears, configure one
+in Home Assistant and retry. You can change it later in **Announcement settings →
+Edit**. When saved Family Bell data exists, setup asks you to confirm using it and
+retains its speech settings and schedule enabled states.
+
+### Upgrade to v0.4.3
 
 Update in HACS, restart Home Assistant and refresh the panel. Existing schedules,
-message sets, announcement settings and entity unique IDs are retained. Editing a
-one-time event during playback no longer replays the same occurrence. On mobile,
-use the enable checkbox and **Edit** directly, and find secondary actions under
-**More**. Background updates preserve the search cursor. If a record changed in
-another window, deletion asks you to review its current contents first.
+message sets, announcement settings and entity unique IDs are retained. New
+installations explicitly choose a speech provider and one of its supported
+languages. Existing users do not need to repeat setup, and saved legacy TTS
+services and languages remain unchanged.
 
 When upgrading from 0.3.x, open individual **Edit** dialogs to make changes. Existing
 legacy TTS services remain supported; choosing a provider uses tts.speak.
