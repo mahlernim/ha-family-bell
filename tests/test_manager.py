@@ -4,6 +4,7 @@ import asyncio
 from copy import deepcopy
 from datetime import timedelta
 from unittest.mock import AsyncMock, Mock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -700,9 +701,15 @@ def test_timezone_change_notifies_pending_events_without_changing_instants(tmp_p
         weekly = await h.bell(time="08:00")
         h.hass.config.language = "ko"
         h.hass.config.time_zone = "Asia/Seoul"
-        with patch(
-            "custom_components.ha_family_bell.manager.persistent_notification.async_create"
-        ) as notify:
+        with (
+            patch(
+                "custom_components.ha_family_bell.manager.dt_util.get_default_time_zone",
+                return_value=ZoneInfo("Asia/Seoul"),
+            ),
+            patch(
+                "custom_components.ha_family_bell.manager.persistent_notification.async_create"
+            ) as notify,
+        ):
             await h.manager.async_timezone_changed()
         after = h.manager.snapshot()
         assert (
