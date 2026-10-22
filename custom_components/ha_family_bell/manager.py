@@ -13,8 +13,6 @@ from datetime import datetime, timedelta
 from random import SystemRandom, choice
 from typing import Any
 from uuid import uuid4
-from zoneinfo import ZoneInfo
-
 from homeassistant.components import persistent_notification
 from homeassistant.core import CoreState, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError, TemplateError
@@ -80,7 +78,7 @@ class FamilyBellManager:
 
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
-        self.timezone = ZoneInfo(hass.config.time_zone)
+        self.timezone = dt_util.get_default_time_zone()
         self._store = FamilyBellStore(hass, STORE_VERSION, STORE_KEY, atomic_writes=True)
         self._data: dict[str, Any] = {}
         self._mutation_lock = asyncio.Lock()
@@ -158,7 +156,7 @@ class FamilyBellManager:
         if self._stopping or self.timezone.key == self.hass.config.time_zone:
             return
         previous_timezone = self.timezone
-        self.timezone = ZoneInfo(self.hass.config.time_zone)
+        self.timezone = dt_util.get_default_time_zone()
         if not self._started:
             return
         affected = self._timezone_changed_events(previous_timezone, self.timezone)
@@ -622,10 +620,8 @@ class FamilyBellManager:
         if mode not in ("merge", "replace"):
             raise BellValidationError("Choose merge or replace")
         timezone = payload.get("timezone", self.timezone.key)
-        try:
-            ZoneInfo(timezone)
-        except (KeyError, TypeError, ValueError) as err:
-            raise BellValidationError("Invalid backup time zone") from err
+        if not isinstance(timezone, str):
+            raise BellValidationError("Invalid backup time zone")
         if timezone != self.timezone.key:
             raise BellValidationError(
                 "Backup time zone differs from Home Assistant. Convert its times before importing."

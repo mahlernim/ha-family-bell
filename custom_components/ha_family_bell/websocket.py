@@ -57,10 +57,11 @@ def ws_list(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
 @websocket_api.require_admin
 @callback
 def ws_subscribe(hass: HomeAssistant, connection, msg: dict[str, Any]) -> None:
-    connection.subscriptions[msg["id"]] = hass.bus.async_listen(
-        EVENT_UPDATED,
-        lambda _event: connection.send_event(msg["id"], {"updated": True}),
-    )
+    @callback
+    def forward_update(_event) -> None:
+        connection.send_event(msg["id"], {"updated": True})
+
+    connection.subscriptions[msg["id"]] = hass.bus.async_listen(EVENT_UPDATED, forward_update)
     connection.send_result(msg["id"])
 
 
