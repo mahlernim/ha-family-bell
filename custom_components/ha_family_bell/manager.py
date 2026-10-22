@@ -48,6 +48,11 @@ _RANDOM = SystemRandom()
 _MAX_RECORDS = 2000
 
 
+def _timezone_key(timezone) -> str:
+    """Return the configured name for any Home Assistant default tzinfo."""
+    return getattr(timezone, "key", str(timezone))
+
+
 class FamilyBellStore(Store[dict[str, Any]]):
     """Retain the existing v2 store and migrate v1 without losing schedules."""
 
@@ -154,7 +159,7 @@ class FamilyBellManager:
             pass
 
     async def async_timezone_changed(self, _event=None) -> None:
-        if self._stopping or self.timezone.key == self.hass.config.time_zone:
+        if self._stopping or _timezone_key(self.timezone) == self.hass.config.time_zone:
             return
         previous_timezone = self.timezone
         self.timezone = dt_util.get_default_time_zone()
@@ -351,13 +356,13 @@ class FamilyBellManager:
             "history": deepcopy(self._data["history"][-50:]),
             "activity": deepcopy(list(self._activity.values())),
             "next_bell": self.next_bell(),
-            "timezone": self.timezone.key,
+            "timezone": _timezone_key(self.timezone),
         }
 
     def export_data(self) -> dict:
         return {
             "version": 2,
-            "timezone": self.timezone.key,
+            "timezone": _timezone_key(self.timezone),
             "settings": self.settings,
             **{key: deepcopy(self._data[key]) for key in ("bells", "routines", "message_sets")},
         }
@@ -620,10 +625,10 @@ class FamilyBellManager:
             raise BellValidationError("Unsupported backup version")
         if mode not in ("merge", "replace"):
             raise BellValidationError("Choose merge or replace")
-        timezone = payload.get("timezone", self.timezone.key)
+        timezone = payload.get("timezone", _timezone_key(self.timezone))
         if not isinstance(timezone, str):
             raise BellValidationError("Invalid backup time zone")
-        if timezone != self.timezone.key:
+        if timezone != _timezone_key(self.timezone):
             raise BellValidationError(
                 "Backup time zone differs from Home Assistant. Convert its times before importing."
             )
@@ -804,7 +809,7 @@ class FamilyBellManager:
         if korean:
             title = "Family Bell 시간대 변경"
             message = (
-                f"시간대가 {previous_timezone.key}에서 {self.timezone.key}(으)로 변경되었습니다. "
+                f"시간대가 {_timezone_key(previous_timezone)}에서 {_timezone_key(self.timezone)}(으)로 변경되었습니다. "
                 f"예정된 일회성 알림 {len(affected)}개의 실제 시각은 유지되며 표시 시각만 바뀝니다.\n\n"
                 f"{changes}"
                 + (f"\n- 외 {remaining}개" if remaining else "")
@@ -813,7 +818,7 @@ class FamilyBellManager:
         else:
             title = "Family Bell timezone changed"
             message = (
-                f"The timezone changed from {previous_timezone.key} to {self.timezone.key}. "
+                f"The timezone changed from {_timezone_key(previous_timezone)} to {_timezone_key(self.timezone)}. "
                 f"{len(affected)} pending one-time event(s) keep the same instant, but their displayed "
                 f"local time changed.\n\n{changes}"
                 + (f"\n- and {remaining} more" if remaining else "")
