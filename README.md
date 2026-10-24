@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/mahlernim/ha-family-bell/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/mahlernim/ha-family-bell"></a>
   <img alt="Home Assistant 2026.7 or newer" src="https://img.shields.io/badge/Home%20Assistant-2026.7%2B-18BCF2?logo=home-assistant&logoColor=white">
-  <img alt="HACS custom repository" src="https://img.shields.io/badge/HACS-Custom-41BDF5?logo=home-assistant-community-store&logoColor=white">
+  <img alt="Available in HACS" src="https://img.shields.io/badge/HACS-Integration-41BDF5?logo=home-assistant-community-store&logoColor=white">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/mahlernim/ha-family-bell"></a>
 </p>
 
@@ -55,7 +55,7 @@ Home Assistant **2026.7.0 이상**, 관리자 계정, TTS 제공자, TTS를 재�
 media_player 엔티티가 필요합니다. Family Bell 자체는 별도 계정이나 API 키가
 필요하지 않습니다. 선택한 TTS 제공자는 계정이나 인터넷 연결을 요구할 수 있습니다.
 
-1. 위 HACS 버튼을 누르거나 이 저장소를 HACS의 **Integration** 사용자 지정 저장소로 추가하세요.
+1. 위 HACS 버튼을 누르거나 HACS에서 **HA Family Bell**을 검색하세요.
 2. **HA Family Bell**을 다운로드한 뒤 Home Assistant를 재시작하세요.
 3. **설정 → 기기 및 서비스 → 통합 구성요소 추가**에서 **HA Family Bell**을 추가하세요.
 4. 처음 설정할 때 **음성 제공자 선택**에서 TTS 엔티티를 선택하고, 다음 화면에서 제공자가 지원하는 언어를 선택하세요.
@@ -72,9 +72,10 @@ Assistant에서 먼저 음성 제공자를 설정한 뒤 다시 시도하세요.
 
 수동 설치 시 저장소의 custom_components/ha_family_bell 폴더를 Home Assistant
 설정 폴더의 custom_components 아래로 복사하고 재시작한 뒤 통합 구성요소를 추가하세요.
-이 저장소는 HACS 사용자 지정 저장소로 설치할 수 있습니다.
+HACS 검색 결과에 보이지 않으면 이 저장소를 HACS의 **Integration** 사용자 지정 저장소로
+추가한 뒤 다운로드하세요.
 
-### v0.4.3로 업데이트
+### 업데이트
 
 HACS에서 업데이트한 뒤 Home Assistant를 재시작하고 브라우저 패널을 새로고침하세요.
 기존 일정, 메시지 모음, TTS 설정과 엔티티의 고유 ID는 유지됩니다. 새 설치에서는 음성
@@ -132,7 +133,7 @@ You need **Home Assistant 2026.7.0 or newer**, an administrator account, a confi
 TTS provider and media players that can play its speech. Family Bell needs no
 separate account or API key. Your TTS provider may need an account or internet access.
 
-1. Use the HACS button above, or add this repository as a custom **Integration** repository.
+1. Use the HACS button above, or search for **HA Family Bell** in HACS.
 2. Download **HA Family Bell** and restart Home Assistant.
 3. Add **HA Family Bell** under **Settings → Devices & services → Add integration**.
 4. During first setup, choose a TTS entity under **Choose a speech provider**, then select one of its supported languages.
@@ -142,14 +143,15 @@ separate account or API key. Your TTS provider may need an account or internet a
 The master schedule and new bell checkboxes start off. A routine and its individual
 bells must both be enabled to run. For manual installation, copy
 custom_components/ha_family_bell into your configuration's custom_components
-directory, restart, and add the integration. HACS installation uses a custom repository.
+directory, restart, and add the integration. If HA Family Bell does not appear in HACS
+search results, add this repository as a custom **Integration** repository first.
 
 First setup requires an available TTS entity. If no provider appears, configure one
 in Home Assistant and retry. You can change it later in **Announcement settings →
 Edit**. When saved Family Bell data exists, setup asks you to confirm using it and
 retains its speech settings and schedule enabled states.
 
-### Upgrade to v0.4.3
+### Updating
 
 Update in HACS, restart Home Assistant and refresh the panel. Existing schedules,
 message sets, announcement settings and entity unique IDs are retained. New
